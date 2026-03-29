@@ -30,7 +30,7 @@ export const Layout = ({ user, profile }: { user: any, profile: any }) => {
       {/* Sidebar - Desktop */}
       <aside className="fixed left-0 top-0 h-full w-64 bg-[#0A0A0A] border-r border-white/10 hidden md:flex flex-col">
         <div className="p-8">
-          <h1 className="text-2xl font-bold tracking-tighter italic text-orange-500">XAU/BTC <span className="text-white">PRO</span></h1>
+          <h1 className="text-2xl font-bold tracking-tighter italic text-orange-500">NINZ <span className="text-white">SIGNAL</span></h1>
           <p className="text-[10px] uppercase tracking-widest text-white/40 mt-1">Sinyal Trading</p>
         </div>
 
@@ -90,7 +90,7 @@ export const Layout = ({ user, profile }: { user: any, profile: any }) => {
       <main className="md:ml-64 pb-24 md:pb-0 min-h-screen">
         <header className="h-16 border-b border-white/10 flex items-center justify-between px-8 bg-[#050505]/80 backdrop-blur-xl sticky top-0 z-40">
           <div className="flex items-center gap-4">
-            <div className="md:hidden text-orange-500 font-bold italic">XAU/BTC</div>
+            <div className="md:hidden text-orange-500 font-bold italic">NINZ SIGNAL</div>
             <div className="hidden md:block text-sm text-white/40">Selamat datang kembali, <span className="text-white font-medium">{user.displayName}</span></div>
           </div>
           <div className="flex items-center gap-4">

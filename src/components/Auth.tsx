@@ -44,7 +44,7 @@ export const Auth = () => {
           <div className="w-20 h-20 bg-orange-500 rounded-3xl mx-auto flex items-center justify-center shadow-2xl shadow-orange-500/30 mb-6 rotate-12">
             <TrendingUp size={40} className="text-white" />
           </div>
-          <h1 className="text-4xl font-bold tracking-tighter italic mb-2">XAU/BTC <span className="text-orange-500">PRO</span></h1>
+          <h1 className="text-4xl font-bold tracking-tighter italic mb-2">NINZ <span className="text-orange-500">SIGNAL</span></h1>
           <p className="text-xs text-white/40 uppercase tracking-widest font-bold">Jaringan Sinyal Trading Elit</p>
         </div>
 
