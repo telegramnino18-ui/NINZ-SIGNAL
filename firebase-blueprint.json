@@ -18,14 +18,6 @@
             "email": { "type": "boolean" },
             "push": { "type": "boolean" }
           }
-        },
-        "metaTrader": {
-          "type": "object",
-          "properties": {
-            "token": { "type": "string", "description": "MetaApi Token" },
-            "accountId": { "type": "string", "description": "MetaApi Account ID" },
-            "status": { "type": "string", "enum": ["connected", "disconnected", "error"] }
-          }
         }
       },
       "required": ["uid", "email", "role", "membership"]

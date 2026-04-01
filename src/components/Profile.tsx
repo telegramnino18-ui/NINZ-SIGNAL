@@ -10,59 +10,6 @@ export const Profile = ({ profile, setProfile }: { profile: any, setProfile: any
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
 
-  const [metaTrader, setMetaTrader] = useState({
-    token: profile?.metaTrader?.token || '',
-    accountId: profile?.metaTrader?.accountId || ''
-  });
-
-  const handleUpdateMetaTrader = async () => {
-    setLoading(true);
-    try {
-      await updateDoc(doc(db, 'users', profile.uid), {
-        metaTrader: {
-          ...metaTrader,
-          status: 'disconnected'
-        }
-      });
-      setProfile({ 
-        ...profile, 
-        metaTrader: { ...metaTrader, status: 'disconnected' } 
-      });
-      toast.success('Kredensial MetaTrader disimpan!', {
-        style: { borderRadius: '12px', background: '#0A0A0A', color: '#fff', border: '1px solid #ffffff10' }
-      });
-    } catch (error) {
-      toast.error('Gagal menyimpan kredensial.');
-    }
-    setLoading(false);
-  };
-
-  const handleTestConnection = async () => {
-    setLoading(true);
-    try {
-      const idToken = await auth.currentUser?.getIdToken();
-      const response = await fetch('/api/broker/test', {
-        headers: {
-          'Authorization': `Bearer ${idToken}`
-        }
-      });
-      const data = await response.json();
-      
-      if (data.success) {
-        toast.success(`Terhubung! Saldo: ${data.accountInfo.balance} ${data.accountInfo.currency}`, {
-          style: { borderRadius: '12px', background: '#0A0A0A', color: '#fff', border: '1px solid #ffffff10' }
-        });
-        setProfile({ ...profile, metaTrader: { ...metaTrader, status: 'connected' } });
-      } else {
-        throw new Error(data.error);
-      }
-    } catch (error: any) {
-      toast.error(`Koneksi Gagal: ${error.message}`);
-      setProfile({ ...profile, metaTrader: { ...metaTrader, status: 'error' } });
-    }
-    setLoading(false);
-  };
-
   const handleUpdateNotifications = async (type: 'email' | 'push') => {
     try {
       const newSettings = {
@@ -182,72 +129,6 @@ export const Profile = ({ profile, setProfile }: { profile: any, setProfile: any
 
         {/* Settings Card */}
         <div className="space-y-8">
-          {/* MetaTrader Integration */}
-          <div className="bg-[#0A0A0A] border border-white/5 rounded-3xl p-8 space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-xl bg-green-500/10 text-green-500">
-                  <ShieldCheck size={20} />
-                </div>
-                <h2 className="text-xl font-bold tracking-tight">MetaTrader API</h2>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${
-                  profile?.metaTrader?.status === 'connected' ? 'bg-green-500 animate-pulse' : 
-                  profile?.metaTrader?.status === 'error' ? 'bg-red-500' : 'bg-white/20'
-                }`} />
-                <span className="text-[10px] font-bold uppercase tracking-widest text-white/40">
-                  {profile?.metaTrader?.status || 'disconnected'}
-                </span>
-              </div>
-            </div>
-            
-            <div className="p-4 bg-orange-500/5 border border-orange-500/10 rounded-2xl">
-              <p className="text-[10px] text-orange-500/80 uppercase tracking-widest font-bold leading-relaxed">
-                Dapatkan token dan account ID Anda di <a href="https://metaapi.cloud" target="_blank" rel="noopener noreferrer" className="underline hover:text-orange-400">metaapi.cloud</a>. Pastikan akun MetaTrader Anda sudah dideploy.
-              </p>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2 block">MetaApi Token</label>
-                <input 
-                  type="password"
-                  value={metaTrader.token}
-                  onChange={(e) => setMetaTrader({ ...metaTrader, token: e.target.value })}
-                  placeholder="Masukkan Token MetaApi"
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm focus:border-orange-500/50 transition-all outline-none"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2 block">Account ID</label>
-                <input 
-                  type="text"
-                  value={metaTrader.accountId}
-                  onChange={(e) => setMetaTrader({ ...metaTrader, accountId: e.target.value })}
-                  placeholder="Masukkan Account ID"
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm focus:border-orange-500/50 transition-all outline-none"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <button
-                  onClick={handleUpdateMetaTrader}
-                  disabled={loading}
-                  className="bg-white/5 hover:bg-white/10 text-white py-4 rounded-2xl font-bold uppercase tracking-widest text-[10px] transition-all border border-white/10"
-                >
-                  {loading ? 'Menyimpan...' : 'Simpan'}
-                </button>
-                <button
-                  onClick={handleTestConnection}
-                  disabled={loading || !profile?.metaTrader?.token}
-                  className="bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 py-4 rounded-2xl font-bold uppercase tracking-widest text-[10px] transition-all border border-orange-500/20"
-                >
-                  {loading ? 'Menghubungkan...' : 'Tes Koneksi'}
-                </button>
-              </div>
-            </div>
-          </div>
-
           <div className="bg-[#0A0A0A] border border-white/5 rounded-3xl p-8 space-y-8">
             <div>
               <div className="flex items-center gap-3 mb-6">

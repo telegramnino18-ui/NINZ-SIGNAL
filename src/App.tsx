@@ -13,6 +13,8 @@ import { Auth } from './components/Auth';
 import { User } from 'firebase/auth';
 import { Bell } from 'lucide-react';
 
+import { ErrorBoundary } from './components/ErrorBoundary';
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
@@ -23,23 +25,28 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
-        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-        if (userDoc.exists()) {
-          setUserProfile(userDoc.data());
-        } else {
-          // Create new user profile
-          const newProfile = {
-            uid: currentUser.uid,
-            email: currentUser.email,
-            displayName: currentUser.displayName,
-            role: currentUser.email === 'telegramnino18@gmail.com' ? 'admin' : 'user',
-            membership: 'free',
-            dailyAccessCount: 0,
-            lastAccessDate: new Date().toISOString().split('T')[0],
-            notificationSettings: { email: true, push: true }
-          };
-          await setDoc(doc(db, 'users', currentUser.uid), newProfile);
-          setUserProfile(newProfile);
+        try {
+          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+          if (userDoc.exists()) {
+            setUserProfile(userDoc.data());
+          } else {
+            // Create new user profile
+            const newProfile = {
+              uid: currentUser.uid,
+              email: currentUser.email,
+              displayName: currentUser.displayName,
+              role: currentUser.email === 'telegramnino18@gmail.com' ? 'admin' : 'user',
+              membership: 'free',
+              dailyAccessCount: 0,
+              lastAccessDate: new Date().toISOString().split('T')[0],
+              notificationSettings: { email: true, push: true }
+            };
+            await setDoc(doc(db, 'users', currentUser.uid), newProfile);
+            setUserProfile(newProfile);
+          }
+        } catch (error) {
+          console.error('Error fetching user profile:', error);
+          // Don't throw here to allow app to load, but user profile will be null
         }
       } else {
         setUserProfile(null);
@@ -88,7 +95,7 @@ export default function App() {
                       Sinyal Baru Tersedia!
                     </p>
                     <p className="mt-1 text-xs text-white/40">
-                      {signal.pair} - {signal.type === 'buy' ? 'BELI' : 'JUAL'} @ {signal.entry}
+                      {signal.pair} - {signal.action === 'BUY' ? 'BELI' : 'JUAL'} @ {signal.entryPrice}
                     </p>
                   </div>
                 </div>
@@ -105,6 +112,8 @@ export default function App() {
           ), { duration: 5000 });
         }
       });
+    }, (error) => {
+      console.error('Notification snapshot error:', error);
     });
 
     return () => unsubscribe();
@@ -119,23 +128,25 @@ export default function App() {
   }
 
   return (
-    <Router>
-      <Toaster position="top-right" />
-      <Routes>
-        {!user ? (
-          <Route path="*" element={<Auth />} />
-        ) : (
-          <Route element={<Layout user={user} profile={userProfile} />}>
-            <Route path="/" element={<Dashboard profile={userProfile} />} />
-            <Route path="/signals" element={<Signals profile={userProfile} setProfile={setUserProfile} />} />
-            <Route path="/performance" element={<Performance />} />
-            <Route path="/analysis" element={<Analysis />} />
-            <Route path="/profile" element={<Profile profile={userProfile} setProfile={setUserProfile} />} />
-            {userProfile?.role === 'admin' && <Route path="/admin" element={<Admin />} />}
-            <Route path="*" element={<Navigate to="/" />} />
-          </Route>
-        )}
-      </Routes>
-    </Router>
+    <ErrorBoundary>
+      <Router>
+        <Toaster position="top-right" />
+        <Routes>
+          {!user ? (
+            <Route path="*" element={<Auth />} />
+          ) : (
+            <Route element={<Layout user={user} profile={userProfile} />}>
+              <Route path="/" element={<Dashboard profile={userProfile} />} />
+              <Route path="/signals" element={<Signals profile={userProfile} setProfile={setUserProfile} />} />
+              <Route path="/performance" element={<Performance />} />
+              <Route path="/analysis" element={<Analysis userProfile={userProfile} />} />
+              <Route path="/profile" element={<Profile profile={userProfile} setProfile={setUserProfile} />} />
+              {userProfile?.role === 'admin' && <Route path="/admin" element={<Admin />} />}
+              <Route path="*" element={<Navigate to="/" />} />
+            </Route>
+          )}
+        </Routes>
+      </Router>
+    </ErrorBoundary>
   );
 }

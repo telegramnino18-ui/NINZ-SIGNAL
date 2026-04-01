@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { collection, db, onSnapshot, query, orderBy, where } from '../firebase';
-import { BarChart3, TrendingUp, TrendingDown, Target, ShieldCheck, ChevronRight, Calendar, History } from 'lucide-react';
+import { collection, db, auth, onSnapshot, query, orderBy, where, limit, handleFirestoreError, OperationType } from '../firebase';
+import { BarChart3, TrendingUp, TrendingDown, Target, ShieldCheck, ChevronRight, Calendar, History, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { format } from 'date-fns';
 
 export const Performance = () => {
   const [closedSignals, setClosedSignals] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     winRate: 0,
     totalProfit: 0,
@@ -16,14 +17,20 @@ export const Performance = () => {
   });
 
   useEffect(() => {
+    if (!auth.currentUser) return;
+
+    // Fetch signals for the current user
     const q = query(
       collection(db, 'signals'),
-      where('status', '==', 'closed'),
-      orderBy('createdAt', 'desc')
+      where('uid', '==', auth.currentUser.uid),
+      orderBy('createdAt', 'desc'),
+      limit(200)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const signals = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const allSignals = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const signals = allSignals.filter((s: any) => s.status === 'closed').slice(0, 100);
+      
       setClosedSignals(signals);
 
       const totalTrades = signals.length;
@@ -38,16 +45,45 @@ export const Performance = () => {
         bestTrade: results.length > 0 ? Math.max(...results) : 0,
         worstTrade: results.length > 0 ? Math.min(...results) : 0
       });
+      setLoading(false);
+    }, (error) => {
+      setLoading(false);
+      handleFirestoreError(error, OperationType.GET, 'signals');
     });
 
     return () => unsubscribe();
   }, []);
 
-  const chartData = closedSignals.slice().reverse().map((s, i) => ({
-    name: format(new Date(s.createdAt), 'MMM dd'),
+  const formatDate = (date: any) => {
+    if (!date) return 'N/A';
+    try {
+      let dateObj;
+      if (typeof date.toDate === 'function') {
+        dateObj = date.toDate();
+      } else {
+        dateObj = new Date(date);
+      }
+      
+      if (isNaN(dateObj.getTime())) return 'N/A';
+      return format(dateObj, 'MMM dd');
+    } catch (e) {
+      return 'N/A';
+    }
+  };
+
+  const chartData = closedSignals.slice().reverse().map((s, i, arr) => ({
+    name: formatDate(s.createdAt),
     profit: s.result,
-    cumulative: closedSignals.slice(0, i + 1).reduce((acc, curr) => acc + (curr.result || 0), 0)
+    cumulative: arr.slice(0, i + 1).reduce((acc, curr) => acc + (curr.result || 0), 0)
   }));
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -157,7 +193,7 @@ export const Performance = () => {
                     <div>
                       <div className="font-bold text-xs tracking-tight">{signal.pair}</div>
                       <div className="text-[10px] text-white/40 uppercase tracking-widest font-bold">
-                        {format(new Date(signal.createdAt), 'MMM dd')}
+                        {formatDate(signal.createdAt)}
                       </div>
                     </div>
                   </div>

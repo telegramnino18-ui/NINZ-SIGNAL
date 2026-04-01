@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, db, onSnapshot, query, orderBy, limit, where } from '../firebase';
+import { collection, db, auth, onSnapshot, query, orderBy, limit, where, handleFirestoreError, OperationType } from '../firebase';
 import { TrendingUp, TrendingDown, Clock, BarChart3, Target, ShieldCheck, ChevronRight } from 'lucide-react';
 import { motion } from 'motion/react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
@@ -8,6 +8,7 @@ import { Link } from 'react-router-dom';
 
 export const Dashboard = ({ profile }: { profile: any }) => {
   const [activeSignals, setActiveSignals] = useState<any[]>([]);
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [stats, setStats] = useState({
     winRate: 0,
     totalProfit: 0,
@@ -16,28 +17,42 @@ export const Dashboard = ({ profile }: { profile: any }) => {
   });
 
   useEffect(() => {
-    const q = query(
+    const interval = setInterval(() => {
+      setLastUpdated(new Date());
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!auth.currentUser) return;
+
+    // Fetch official active signals
+    const qActive = query(
       collection(db, 'signals'),
+      where('type', '==', 'OFFICIAL'),
       where('status', '==', 'active'),
       orderBy('createdAt', 'desc'),
       limit(3)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const signals = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setActiveSignals(signals);
+    const unsubscribeActive = onSnapshot(qActive, (snapshot) => {
+      const active = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setActiveSignals(active);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'signals');
     });
 
-    // Fetch closed signals for stats
-    const qClosed = query(
+    // Fetch user-specific signals for stats
+    const qStats = query(
       collection(db, 'signals'),
-      where('status', '==', 'closed'),
+      where('uid', '==', auth.currentUser.uid),
       orderBy('createdAt', 'desc'),
       limit(50)
     );
 
-    const unsubscribeStats = onSnapshot(qClosed, (snapshot) => {
-      const closedSignals = snapshot.docs.map(doc => doc.data());
+    const unsubscribeStats = onSnapshot(qStats, (snapshot) => {
+      const userSignals = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const closedSignals = userSignals.filter((s: any) => s.status === 'closed');
       const totalTrades = closedSignals.length;
       const wins = closedSignals.filter((s: any) => s.result > 0).length;
       const totalProfit = closedSignals.reduce((acc: number, s: any) => acc + (s.result || 0), 0);
@@ -46,15 +61,18 @@ export const Dashboard = ({ profile }: { profile: any }) => {
         winRate: totalTrades > 0 ? Math.round((wins / totalTrades) * 100) : 0,
         totalProfit,
         totalTrades,
-        monthlyProfit: totalProfit // Simplified for demo
+        monthlyProfit: totalProfit
       });
+      setLastUpdated(new Date());
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'signals');
     });
 
     return () => {
-      unsubscribe();
+      unsubscribeActive();
       unsubscribeStats();
     };
-  }, []);
+  }, [lastUpdated.getTime()]);
 
   const chartData = [
     { name: 'Mon', profit: 400 },
@@ -69,6 +87,13 @@ export const Dashboard = ({ profile }: { profile: any }) => {
   return (
     <div className="space-y-8">
       {/* Hero Stats */}
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-sm font-bold text-white/60 uppercase tracking-widest">Statistik Performa</h2>
+        <div className="flex items-center gap-2 text-[10px] text-white/30 uppercase tracking-widest font-bold">
+          <Clock size={10} className="animate-pulse text-orange-500" />
+          Auto-refresh: {format(lastUpdated, 'HH:mm:ss')}
+        </div>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
           { label: 'Tingkat Kemenangan', value: `${stats.winRate}%`, icon: Target, color: 'text-green-500' },

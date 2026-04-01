@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, db, addDoc, updateDoc, doc, onSnapshot, query, orderBy, where, Timestamp } from '../firebase';
+import { collection, db, addDoc, updateDoc, doc, onSnapshot, query, orderBy, where, Timestamp, handleFirestoreError, OperationType } from '../firebase';
 import { TrendingUp, TrendingDown, Plus, X, CheckCircle2, AlertCircle, Clock, BarChart3, Target, ShieldCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import toast from 'react-hot-toast';
@@ -21,6 +21,8 @@ export const Admin = () => {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const signals = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setActiveSignals(signals);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'signals');
     });
     return () => unsubscribe();
   }, []);
@@ -34,7 +36,7 @@ export const Admin = () => {
         tp: parseFloat(newSignal.tp),
         sl: parseFloat(newSignal.sl),
         status: 'active',
-        createdAt: new Date().toISOString(),
+        createdAt: Timestamp.now(),
         result: 0
       });
       setShowAddModal(false);
@@ -51,7 +53,7 @@ export const Admin = () => {
     try {
       await updateDoc(doc(db, 'signals', signalId), {
         status: 'closed',
-        closedAt: new Date().toISOString(),
+        closedAt: Timestamp.now(),
         result: result
       });
       toast.success('Sinyal ditutup!', {

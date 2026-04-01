@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, db, onSnapshot, query, orderBy, doc, updateDoc, Timestamp } from '../firebase';
+import { collection, db, onSnapshot, query, orderBy, where, doc, updateDoc, Timestamp, handleFirestoreError, OperationType } from '../firebase';
 import { TrendingUp, TrendingDown, Clock, Lock, Eye, ChevronRight, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
@@ -11,11 +11,18 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const q = query(collection(db, 'signals'), orderBy('createdAt', 'desc'));
+    const q = query(
+      collection(db, 'signals'),
+      where('type', '==', 'OFFICIAL'),
+      orderBy('createdAt', 'desc')
+    );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const signalsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setSignals(signalsData);
       setLoading(false);
+    }, (error) => {
+      setLoading(false);
+      handleFirestoreError(error, OperationType.GET, 'signals');
     });
 
     // Load viewed signals from localStorage for this session/day
@@ -67,6 +74,23 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
     } catch (error) {
       console.error('Error updating access count:', error);
       toast.error('Gagal membuka sinyal.');
+    }
+  };
+
+  const formatDate = (date: any) => {
+    if (!date) return 'Baru saja';
+    try {
+      let dateObj;
+      if (typeof date.toDate === 'function') {
+        dateObj = date.toDate();
+      } else {
+        dateObj = new Date(date);
+      }
+      
+      if (isNaN(dateObj.getTime())) return 'Baru saja';
+      return format(dateObj, 'MMM dd, HH:mm');
+    } catch (e) {
+      return 'Baru saja';
     }
   };
 
@@ -125,7 +149,7 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
                   <div>
                     <div className="font-bold text-sm tracking-tight">{signal.pair}</div>
                     <div className="text-[10px] text-white/40 uppercase tracking-widest font-bold">
-                      {format(new Date(signal.createdAt), 'MMM dd, HH:mm')}
+                      {formatDate(signal.createdAt)}
                     </div>
                   </div>
                 </div>

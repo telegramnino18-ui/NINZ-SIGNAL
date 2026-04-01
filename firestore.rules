@@ -57,10 +57,11 @@ service cloud.firestore {
     }
 
     function isValidSignal(data) {
-      return data.keys().hasAll(['pair', 'action', 'entryPrice', 'tp', 'sl', 'status', 'createdAt']) &&
+      return data.keys().hasAll(['pair', 'action', 'entryPrice', 'tp', 'sl', 'status', 'createdAt', 'uid', 'type']) &&
              data.pair in ['XAU/USD', 'BTC/USD'] &&
              data.action in ['BUY', 'SELL'] &&
-             data.status in ['active', 'closed'];
+             data.status in ['active', 'closed', 'open'] &&
+             data.type in ['ULTRASCALP', 'SWING', 'OFFICIAL'];
     }
 
     // Rules for users collection
@@ -78,8 +79,21 @@ service cloud.firestore {
 
     // Rules for signals collection
     match /signals/{signalId} {
+      // Allow everyone to read signals (shared feed)
       allow read: if isAuthenticated();
+      
+      // Allow admins to do anything
       allow create, update, delete: if isAdmin();
+      
+      // Allow authenticated users to create their own signals
+      allow create: if isAuthenticated() && 
+                    request.resource.data.uid == request.auth.uid &&
+                    isValidSignal(request.resource.data);
+                    
+      // Allow users to update/delete their own signals
+      allow update, delete: if isAuthenticated() && 
+                            resource.data.uid == request.auth.uid &&
+                            isValidSignal(request.resource.data);
     }
   }
 }
