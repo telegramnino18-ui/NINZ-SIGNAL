@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { motion } from 'motion/react';
-import { Sparkles, TrendingUp, TrendingDown, Info, RefreshCw, AlertTriangle, BarChart2, Clock, Terminal as TerminalIcon, Activity, Globe, Zap, ShoppingBag, DollarSign, ArrowUpRight, ArrowDownRight, Download, Cpu, X, Target, Key, ShieldCheck } from 'lucide-react';
+import { Sparkles, TrendingUp, TrendingDown, Info, RefreshCw, AlertTriangle, BarChart2, Clock, Terminal as TerminalIcon, Activity, Globe, Zap, ShoppingBag, DollarSign, ArrowUpRight, ArrowDownRight, Download, Cpu, X, Target, Key, ShieldCheck, Lock } from 'lucide-react';
 import { auth, db, collection, addDoc, Timestamp, handleFirestoreError, OperationType, doc, onSnapshot } from '../firebase';
 import ReactMarkdown from 'react-markdown';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -29,7 +29,7 @@ const TradingViewWidget = ({ symbol, timeframe }: { symbol: string, timeframe: s
   const src = `https://www.tradingview.com/widgetembed/?symbol=${tvSymbol}&interval=${interval}&theme=dark&style=1&locale=en&enable_publishing=false&allow_symbol_change=true&calendar=false&support_host=https://www.tradingview.com${isScalp ? '&hide_top_toolbar=true&hide_legend=true' : ''}`;
 
   return (
-    <div className="h-full w-full bg-black">
+    <div className="h-full w-full bg-[#131722] relative rounded-2xl overflow-hidden group">
       <iframe
         key={src}
         src={src}
@@ -110,20 +110,34 @@ interface TapeEntry {
   side: 'BUY' | 'SELL';
 }
 
+import { getMultiTimeframeAnalysis } from '../lib/indicators';
+
 export const Analysis = ({ userProfile }: { userProfile: any }) => {
   const [data, setData] = useState<MarketData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedPair, setSelectedPair] = useState<Pair>('XAU/USD');
+  const [selectedPair, setSelectedPair] = useState<Pair>(() => {
+    return (localStorage.getItem('ninz_preferred_pair') as Pair) || 'XAU/USD';
+  });
   const [showPairDropdown, setShowPairDropdown] = useState(false);
-  const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('5M');
+  const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>(() => {
+    return (localStorage.getItem('ninz_preferred_timeframe') as Timeframe) || '5M';
+  });
+  
+  useEffect(() => {
+    localStorage.setItem('ninz_preferred_pair', selectedPair);
+  }, [selectedPair]);
+
+  useEffect(() => {
+    localStorage.setItem('ninz_preferred_timeframe', selectedTimeframe);
+  }, [selectedTimeframe]);
   const [impactFilter, setImpactFilter] = useState<'ALL' | 'HIGH' | 'MEDIUM' | 'LOW'>('ALL');
   const [chartData, setChartData] = useState<any[]>([]);
   
   const filteredCalendar = useMemo(() => {
     if (!data?.economicCalendar) return [];
     if (impactFilter === 'ALL') return data.economicCalendar;
-    return data.economicCalendar.filter(event => event.impact === impactFilter);
+    return data.economicCalendar.filter(event => (event.impact || '').toUpperCase() === impactFilter);
   }, [data?.economicCalendar, impactFilter]);
 
   const [tape, setTape] = useState<TapeEntry[]>([]);
@@ -208,44 +222,52 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
     setError(null);
     
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
+      // 1. Fetch REAL Market Data from Binance (Multi-Timeframe)
+      const binanceSymbol = selectedPair === 'BTC/USD' ? 'BTCUSDT' : 'PAXGUSDT';
+      const mtfData = await getMultiTimeframeAnalysis(binanceSymbol);
+      
+      const formatTF = (tfData: any, tfName: string) => {
+        if (!tfData) return `${tfName}: Data tidak tersedia`;
+        return `${tfName} -> Harga: ${tfData.price}, EMA50: ${tfData.ema50.toFixed(2)}, EMA200: ${tfData.ema200.toFixed(2)}, RSI(14): ${tfData.rsi.toFixed(2)}, TREN: ${tfData.trend}`;
+      };
+
+      const mtfContext = `
+DATA INDIKATOR TEKNIKAL REAL-TIME (BINANCE API):
+${formatTF(mtfData.H4, 'Timeframe H4')}
+${formatTF(mtfData.H1, 'Timeframe H1')}
+${formatTF(mtfData.M15, 'Timeframe M15')}
+`;
+
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
       if (!apiKey) {
-        throw new Error('API Key Gemini tidak ditemukan. Harap tambahkan GEMINI_API_KEY di Environment Variables.');
+        throw new Error('API Key Gemini tidak ditemukan. Harap tambahkan VITE_GEMINI_API_KEY atau GEMINI_API_KEY di Environment Variables.');
       }
 
       const ai = new GoogleGenAI({ apiKey });
-      const model = ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
-        contents: `Anda adalah QUANT/ALGO TRADER PROFESIONAL (Elit Institusi Top Tier) dengan rekam jejak kemenangan 95% secara historis. Fokus Anda adalah keakuratan mutlak dan Anda HANYA memberikan sinyal jikaSetup memiliki probabilitas keberhasilan Super Ekstrim di atas 90%.
+      const analysisPromise = ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: `Anda adalah QUANT/ALGO TRADER PROFESIONAL (Elit Institusi Top Tier). Anda HANYA memberikan sinyal jika setup memiliki probabilitas keberhasilan sangat tinggi (di atas 90%) berdasarkan Smart Money Concepts (SMC) dan konfluensi indikator.
 
-Berikan sinyal trading presisi maksimum untuk pair ${selectedPair} timeframe ${selectedTimeframe}. Harga saat ini: ${livePricesRef.current[selectedPair].price}.
+Konteks Market: Pair Fokus ${selectedPair} pada timeframe ${selectedTimeframe}.
+Harga ${selectedPair} saat ini: ${livePricesRef.current[selectedPair].price}.
+Harga XAU/USD: ${livePricesRef.current['XAU/USD']?.price}. Harga BTC/USD: ${livePricesRef.current['BTC/USD']?.price}.
 
-SYARAT AKURASI SUPER DUPER TINGGI (WAJIB TERPENUHI, JIKA TIDAK = NO TRADE):
+${mtfContext}
 
-1. Smart Money Concepts (SMC) & Struktur Pasar:
-   - Wajib ada konfirmasi Change of Character (ChoCh) atau Break of Structure (BOS) yang jelas pada timeframe ini, sejalan dengan higher timeframe.
-   - Entry hanya diizinkan pada area Order Block (OB) yang belum dimitigasi atau Fair Value Gap (FVG) kualitas tinggi.
+SYARAT SETUP TRADING (Probabilitas >90%):
+1. Struktur Pasar & SMC: Wajib terdapat valid Break of Structure (BOS) / Change of Character (ChoCh). Entry HANYA valid pada unmitigated Order Block (OB) atau Fair Value Gap (FVG) kualitas tinggi.
+2. Likuiditas: Wajib ada proses Liquidity Sweep (Stop Hunt / Inducement) sebelum setup tervalidasi.
+3. Konfluensi Indikator: Selaras dengan tren mayor (EMA 50 & 200), didukung oleh momentum solid (Hidden/Regular Divergence RSI atau konfirmasi MACD).
+4. Risk/Reward Ratio: Rasio minimal 1:3. Stop Loss (SL) harus aman dan ditempatkan logis di luar struktur/zona likuiditas.
 
-2. Likuiditas (Liquidity Sweep):
-   - Wajib ada proses pengambilan likuiditas (Liquidity Sweep / Inducement) sebelum entry. Jangan masuk sebelum ritel trader terkena stop-loss (Trap).
-
-3. Konfluensi Multi-Indikator:
-   - EMA 50 & 200: Tren timeframe eksekusi HARUS selaras dengan tren besar (H1/H4).
-   - RSI (14) & Divergence: Wajib ada validasi Hidden/Regular Divergence di area Ekstrim.
-   - MACD: Histogram & Sinyal Crossover harus sempurna bertepatan dengan OB/FVG.
-
-4. Volatilitas & Waktu (Killzones):
-   - Probabilitas tinggi jika berada pada jadwal overlap sisi London atau New York, dengan volume transaksi melonjak drastis.
-
-5. Risk/Reward Ratio (RR) Ekstrem Ketat:
-   - RR MInimal Wajib 1:3. Stop Loss harus ditutupi dan diamankan tepat di belakang struktur harga mayor (Swing High/Low) atau titik likuiditas invalid.
-
-Format output di JSON:
-- setupType: Isi "BUY" atau "SELL". JIKA ADA KONDISI YANG KURANG ATAU RAGU WALAUPUN SEDIKIT, WAJIB ISI "NO TRADE - Menunggu Setup Institusional Lebih Kuat".
-- analysis: Berikan insight SMC, FVG, dan likuiditas mengapa area ini sangat probabilitas tinggi (maksimal 2 kalimat singkat, rasio RR 1:3+).
-- confirmations: List konfirmasi mendalam berdasarkan panduan SMC & indikator di atas.
-- levels: Hitung Entry akurat di ujung FVG/OB, SL di luar zona likuiditas (MINIMAL 50 pips = Jarak 5.0 nominal harga untuk XAU/USD), TP1(RR 1:2), TP2(RR 1:3), TP3(1:5+).
-- Hanya beri sinyal entry JIKA probabilitas sukses secara teori mendekati kepastian berdasarkan parameter institusional.
+INSTRUKSI OUTPUT JSON:
+Hasilkan output JSON yang sangat rinci mencakup:
+- setupType: "BUY", "SELL", atau "NO TRADE" secara spesifik untuk pair ${selectedPair}.
+- analysis: Analisis naratif terperinci mengenai SMC, FVG, dan sapuan likuiditas, serta justifikasi kuat mengapa tingkat kesuksesannya >90%.
+- confirmations: Daftar detail dari sinyal SMC dan konfluensi indikator yang memvalidasi keputusan.
+- sentiment: Angka skor sentimen (0-100) beserta string label untuk XAU dan BTC.
+- levels: Hitung titik harga presisi absolut (Resistance, Support, Pivot) serta strategi trading langsung (Entry, SL, TP, TP2, TP3) untuk masing-masing XAU dan BTC. Pastikan SL, TP1, TP2, TP3 dikalkulasi secara rasional sesuai kaidah ketat SMC.
+- swingLevels: Hitung skenario makro untuk swing (Buy Setup dan Sell Setup terpisah) dengan set harga Entry, SL, TP, TP2, TP3 untuk XAU dan BTC.
 `,
         config: {
           responseMimeType: "application/json",
@@ -438,7 +460,7 @@ Format output di JSON:
         }
       });
 
-      const response = await model;
+      const response = await analysisPromise;
       let responseText = response.text || '';
       // Hapus blok markdown json jika ada
       if (responseText.includes('```json')) {
@@ -476,14 +498,19 @@ Format output di JSON:
         });
       }
     } catch (err: any) {
-      console.error('Gemini Error:', err);
+      const stringifiedError = typeof err === 'object' ? JSON.stringify(err) : String(err);
+      const isQuotaError = err?.status === 429 || err?.error?.code === 429 || stringifiedError.includes('429') || stringifiedError.toLowerCase().includes('quota');
+      
+      if (!isQuotaError) {
+        console.error('Gemini Error:', err);
+      }
       
       // Fallback ke sistem internal jika AI gagal
       generateSystemFallback();
       
-      if (err.message?.includes('API Key')) {
-        setError(err.message);
-      } else if (err.status === 429 || err.message?.includes('429') || err.message?.includes('Quota') || err.message?.includes('quota')) {
+      if (err?.message?.includes('API Key') || stringifiedError.includes('API Key')) {
+        setError(err?.message || 'API Key Error');
+      } else if (isQuotaError) {
         toast.error('Limit API AI telah habis. Menggunakan sistem cadangan (Fallback).', {
           style: { background: '#0A0A0A', color: '#fff', border: '1px solid #EF4444' }
         });
@@ -503,8 +530,8 @@ Format output di JSON:
 
   // Live Price State
   const [livePrices, setLivePrices] = useState({
-    'XAU/USD': { price: 2350.50, change: '+0.45%', isUp: true },
-    'BTC/USD': { price: 65000.00, change: '+1.25%', isUp: true }
+    'XAU/USD': { price: 2350.50, change: '+0.45%', isUp: true, volume: 0 },
+    'BTC/USD': { price: 65000.00, change: '+1.25%', isUp: true, volume: 0 }
   });
   const lastTPHitTimeRef = useRef<number>(0);
 
@@ -541,12 +568,14 @@ Format output di JSON:
       const data = JSON.parse(event.data);
       const price = parseFloat(data.c); 
       const change = parseFloat(data.P);
+      const volume = parseFloat(data.q); // quote asset volume (USDT)
       setLivePrices(prev => ({
         ...prev,
         'BTC/USD': {
           price: price,
           change: `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`,
-          isUp: change >= 0
+          isUp: change >= 0,
+          volume: volume
         }
       }));
       if (isFirstFetch['BTC/USD']) {
@@ -558,12 +587,14 @@ Format output di JSON:
       const data = JSON.parse(event.data);
       const price = clampXauPrice(parseFloat(data.c));
       const change = parseFloat(data.P);
+      const volume = parseFloat(data.q);
       setLivePrices(prev => ({
         ...prev,
         'XAU/USD': {
           price: price,
           change: `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`,
-          isUp: change >= 0
+          isUp: change >= 0,
+          volume: volume
         }
       }));
       if (isFirstFetch['XAU/USD']) {
@@ -1296,13 +1327,16 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
   };
 
   useEffect(() => {
+    // Only generate analysis if we have the real-time price fetched!
+    if (isFirstFetch[selectedPair]) return;
+
     // Add a small random delay to prevent simultaneous calls from multiple tabs
-    const delay = Math.floor(Math.random() * 5000);
+    const delay = Math.floor(Math.random() * 2000);
     const timeout = setTimeout(() => {
       generateAnalysis();
     }, delay);
     return () => clearTimeout(timeout);
-  }, [selectedPair, generateAnalysis]);
+  }, [selectedPair, isFirstFetch, generateAnalysis]);
 
   // Auto-refresh Analysis every 5 minutes as requested
   useEffect(() => {
@@ -1313,7 +1347,7 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
             console.log('Auto-refreshing Terminal analysis...');
             generateAnalysis(0, true);
           }
-          return 900;
+          return 300;
         }
         return prev - 1;
       });
@@ -1333,15 +1367,15 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
 
   // Reset countdown when pair changes or manual refresh
   useEffect(() => {
-    setNextRefreshIn(900);
+    setNextRefreshIn(300);
   }, [selectedPair, lastUpdated]);
 
   // Signal Monitor: Auto-refresh when TP or SL is hit
   useEffect(() => {
     if (!data || loading || isFallback) return;
     
-    // Cooldown 30 seconds to prevent rapid refreshes
-    if (Date.now() - lastTPHitTimeRef.current < 30000) return;
+    // Cooldown 5 menit (300000ms) untuk mencegah refresh berlebihan saat harga stabil di area TP/SL
+    if (Date.now() - lastTPHitTimeRef.current < 300000) return;
 
     const checkTP = (pair: Pair) => {
       try {
@@ -1383,52 +1417,109 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
     }
   }, [livePrices, data, selectedPair, loading, isFallback, generateAnalysis]);
 
+  const [customLevels, setCustomLevels] = useState({
+    entry: '', sl: '', tp: '', tp2: '', tp3: '', logEntry: '', logSL: '', logTP: ''
+  });
+
   // Sync trading inputs with AI levels
   useEffect(() => {
     if (data) {
       const pairLevels = selectedPair === 'XAU/USD' ? data.swingLevels.xau : data.swingLevels.btc;
       const levels = swingAction === 'BUY' ? pairLevels.buy : pairLevels.sell;
       
-      setEntryPrice(levels.entry || '');
-      
-      // Auto-sync SL TP Tracker as well for "Active Order" feel
-      setLogEntry(levels.entry || '');
-      setLogSL(levels.sl || '');
-      setLogTP(levels.tp || '');
-      
       if (!useCustomSwing) {
+        setEntryPrice(levels.entry || '');
+        
+        // Auto-sync SL TP Tracker as well for "Active Order" feel
+        setLogEntry(levels.entry || '');
+        setLogSL(levels.sl || '');
+        setLogTP(levels.tp || '');
+        
         setSwingStopLoss(String(parseFloat(String(levels.sl).replace(/,/g, '')) || ''));
         setSwingTakeProfit(String(parseFloat(String(levels.tp).replace(/,/g, '')) || ''));
         setSwingTakeProfit2(String(parseFloat(String(levels.tp2).replace(/,/g, '')) || ''));
         setSwingTakeProfit3(String(parseFloat(String(levels.tp3).replace(/,/g, '')) || ''));
+      } else {
+        // When toggled to TRUE, we preserve the custom fields
+        // The restoring logic is handled when useCustomSwing changes initially, see another effect
       }
     }
   }, [data, selectedPair, swingAction, useCustomSwing]);
+
+  const handleToggleCustomSwing = () => {
+    if (useCustomSwing) {
+      // Switching to FALSE (System Levels)
+      // Save current manually set values BEFORE applying AI levels
+      setCustomLevels({
+        entry: entryPrice,
+        sl: swingStopLoss,
+        tp: swingTakeProfit,
+        tp2: swingTakeProfit2,
+        tp3: swingTakeProfit3,
+        logEntry: logEntry,
+        logSL: logSL,
+        logTP: logTP
+      });
+      setUseCustomSwing(false);
+    } else {
+      // Switching to TRUE (Custom Levels)
+      // Restore previously saved custom levels if they aren't empty
+      if (customLevels.logEntry) setLogEntry(customLevels.logEntry);
+      if (customLevels.logSL) setLogSL(customLevels.logSL);
+      if (customLevels.logTP) setLogTP(customLevels.logTP);
+      if (customLevels.entry) setEntryPrice(customLevels.entry);
+      setUseCustomSwing(true);
+    }
+  };
+
+  if (userProfile?.membership === 'free') {
+    return (
+      <div className="min-h-screen text-white p-4 flex flex-col items-center justify-center font-sans space-y-6">
+        <div className="w-24 h-24 bg-violet-500/10 rounded-full flex items-center justify-center mb-6">
+          <Lock size={48} className="text-violet-500 shadow-[0_0_15px_rgba(139,92,246,0.6)]" />
+        </div>
+        <h1 className="text-3xl font-black uppercase tracking-widest text-center">Fitur Terkunci</h1>
+        <p className="text-sm text-white/50 text-center max-w-sm uppercase tracking-wider font-bold leading-relaxed">
+          Sistem Analisis AI dan Log Performa khusus untuk pengguna Premium.
+        </p>
+        <button
+          onClick={() => window.location.href = '/profile'}
+          className="mt-8 px-8 py-4 bg-white text-black font-black uppercase tracking-widest rounded-2xl shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:scale-105 transition-transform"
+        >
+          Tingkatkan ke Premium
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 pb-12 font-sans min-h-screen text-white p-4">
       {/* Header Section */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex flex-col">
+          <div className="flex items-center gap-3">
+            <Globe className="text-emerald-500 animate-pulse" size={16} />
+          </div>
         </div>
       </div>
 
       {/* Pair & Timeframe Selectors */}
       <div className="space-y-4">
-        <div className="flex items-center gap-3 relative">
-          <button 
-            onClick={() => setShowPairDropdown(!showPairDropdown)}
-            className="flex items-center gap-2 bg-[#1A1A1A] border border-indigo-500/30 px-4 py-2 rounded-xl shadow-[0_0_20px_rgba(99,102,241,0.8)] border border-indigo-400/50 hover:bg-[#2A2A2A] transition-colors"
-          >
-            <span className="text-sm font-black text-white tracking-tighter">
-              {selectedPair === 'XAU/USD' ? 'XAUUSD' : 'BTCUSD'}
-            </span>
-            <div className="w-px h-4 bg-white/10 mx-1" />
-            <span className="text-[10px] font-bold text-white/40 uppercase">
-              {selectedPair === 'XAU/USD' ? 'GOLD' : 'BITCOIN'}
-            </span>
-            <ArrowDownRight size={14} className="text-white/40 ml-1" />
-          </button>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3 relative">
+            <button 
+              onClick={() => setShowPairDropdown(!showPairDropdown)}
+              className="flex items-center gap-2 bg-[#1A1A1A] border border-indigo-500/30 px-4 py-2 rounded-xl shadow-[0_0_20px_rgba(99,102,241,0.8)] border border-indigo-400/50 hover:bg-[#2A2A2A] transition-colors"
+            >
+              <span className="text-sm font-black text-white tracking-tighter">
+                {selectedPair === 'XAU/USD' ? 'XAUUSD' : 'BTCUSD'}
+              </span>
+              <div className="w-px h-4 bg-white/10 mx-1" />
+              <span className="text-[10px] font-bold text-white/40 uppercase">
+                {selectedPair === 'XAU/USD' ? 'GOLD' : 'BITCOIN'}
+              </span>
+              <ArrowDownRight size={14} className="text-white/40 ml-1" />
+            </button>
 
           {showPairDropdown && (
             <div className="absolute top-full left-0 mt-2 w-48 bg-[#1A1A1A] border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col">
@@ -1451,6 +1542,14 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
               </button>
             </div>
           )}
+          </div>
+          
+          <div className="flex flex-col items-end">
+             <div className="text-[10px] font-bold text-white/40 uppercase tracking-widest">24H Volume (USDT)</div>
+             <div className="text-xs font-black text-white font-mono">
+               ${(livePrices[selectedPair].volume || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}
+             </div>
+          </div>
         </div>
 
         <div className="flex items-center gap-4 overflow-x-auto pb-2 no-scrollbar">
@@ -1650,14 +1749,21 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2 md:gap-3 w-full md:w-auto">
-                <button 
-                  onClick={() => generateAnalysis(0, true)}
-                  disabled={loading}
-                  className="flex items-center justify-center gap-2 px-3 py-1.5 md:py-1 bg-indigo-500/10 rounded-xl md:rounded-full border border-indigo-500/20 hover:bg-indigo-500/20 transition-all text-indigo-400 drop-shadow-[0_0_10px_rgba(129,140,248,0.8)] flex-1 md:flex-none whitespace-nowrap"
-                >
-                  <RefreshCw size={10} className={loading ? 'animate-spin' : ''} />
-                  <span className="text-[9px] md:text-[8px] font-black uppercase tracking-widest">AUTO SIGNAL</span>
-                </button>
+                <div className="flex items-center gap-2 flex-1 md:flex-none">
+                  <button 
+                    onClick={() => generateAnalysis(0, true)}
+                    disabled={loading}
+                    className="flex items-center justify-center gap-2 px-3 py-1.5 md:py-1 bg-indigo-500/10 rounded-xl md:rounded-full border border-indigo-500/20 hover:bg-indigo-500/20 transition-all text-indigo-400 drop-shadow-[0_0_10px_rgba(129,140,248,0.8)] flex-1 md:flex-none whitespace-nowrap"
+                  >
+                    <RefreshCw size={10} className={loading ? 'animate-spin' : ''} />
+                    <span className="text-[9px] md:text-[8px] font-black uppercase tracking-widest">AUTO SIGNAL</span>
+                  </button>
+                  <div className="flex flex-col items-center justify-center bg-indigo-500/10 border border-indigo-500/20 rounded-xl md:rounded-full px-3 py-1 md:py-0.5" title="Sisa waktu pembaruan otomatis">
+                    <span className="text-[10px] md:text-[9px] font-mono font-bold text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)]">
+                      {Math.floor(nextRefreshIn / 60)}:{(nextRefreshIn % 60).toString().padStart(2, '0')}
+                    </span>
+                  </div>
+                </div>
                 <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-indigo-400/10 rounded-full border border-indigo-400/20 shadow-[0_0_15px_rgba(129,140,248,0.4)]">
                   <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
                   <span className="text-[8px] font-black text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)] uppercase tracking-widest">REAL-TIME AI</span>
@@ -1683,7 +1789,7 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                   data?.predictions?.h1?.direction === 'DOWN' ? 'bg-purple-500/10 border-purple-500/30 shadow-[0_0_15px_rgba(168,85,247,0.4)] text-purple-500 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]' : 
                   'bg-white/5 border-white/10 text-white/30'
                 }`}>
-                  {data?.predictions?.h1?.direction === 'UP' ? 'BULLISH' : data?.predictions?.h1?.direction === 'DOWN' ? 'BEARISH' : 'NEUTRAL'}
+                  {data?.predictions?.h1?.direction === 'UP' ? 'BUY SIGNAL' : data?.predictions?.h1?.direction === 'DOWN' ? 'SELL SIGNAL' : 'NEUTRAL'}
                 </span>
               </div>
             </div>
@@ -1707,7 +1813,7 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
               </div>
 
               <div className="flex-1 min-w-0 space-y-4">
-                {loading ? (
+                {(!data && loading) ? (
                   <div className="space-y-4 animate-pulse">
                     <div className="h-16 bg-white/5 rounded-2xl"></div>
                     <div className="h-16 bg-white/5 rounded-2xl"></div>
@@ -1723,7 +1829,27 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                       const isNearResistance = Math.abs(price - resistance) / price < 0.0015; 
                       const isNearSupport = Math.abs(price - support) / price < 0.0015;
                       
-                      if (!isNearResistance && !isNearSupport) return null;
+                      if (!isNearResistance && !isNearSupport) {
+                        return (
+                          <motion.div 
+                            initial={{ opacity: 0, y: -10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="bg-white/5 border border-white/10 rounded-2xl p-4 mb-4"
+                          >
+                            <div className="flex items-start gap-3">
+                              <Activity className="text-white/40 mt-1 flex-shrink-0" size={18} />
+                              <div>
+                                <h4 className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1">
+                                  Status Market Saat Ini
+                                </h4>
+                                <p className="text-xs text-white/60 leading-relaxed font-medium">
+                                  Harga berada di area netral. AI Sistem sedang melakukan monitoring ketat hingga harga memasuki zona Support ({data.levels[pairKey].support}) atau Resistance ({data.levels[pairKey].resistance}) untuk peluang eksekusi probabilita tinggi.
+                                </p>
+                              </div>
+                            </div>
+                          </motion.div>
+                        );
+                      }
                       
                       return (
                         <motion.div 
@@ -1815,7 +1941,7 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                         ))}
                       </div>
                     </motion.div>
-                    
+
                     {/* Live Sync Status */}
                     <div className="pt-2 flex items-center justify-center gap-2">
                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
@@ -1906,23 +2032,35 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
           </div>
 
           <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-5 space-y-4">
-            <div className="flex items-center justify-between border-b border-white/5 pb-2">
-              <h3 className="text-[10px] font-bold text-violet-500 uppercase tracking-widest flex items-center gap-2">
-                <Globe size={14} />
-                Kalender Ekonomi
-              </h3>
-              <select 
-                value={impactFilter}
-                onChange={(e) => setImpactFilter(e.target.value as any)}
-                className="bg-white/5 border border-white/10 rounded px-2 py-0.5 text-[8px] font-bold text-white/60 uppercase tracking-widest focus:outline-none focus:border-violet-500/50 transition-colors cursor-pointer"
-              >
-                <option value="ALL">SEMUA IMPACT</option>
-                <option value="HIGH">HIGH IMPACT</option>
-                <option value="MEDIUM">MEDIUM IMPACT</option>
-                <option value="LOW">LOW IMPACT</option>
-              </select>
+            <div className="flex flex-col gap-3 border-b border-white/5 pb-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-[10px] font-bold text-violet-500 uppercase tracking-widest flex items-center gap-2">
+                  <Globe size={14} />
+                  Kalender Ekonomi
+                </h3>
+              </div>
+              <div className="flex items-center gap-1 bg-white/5 p-1 rounded-lg">
+                {[
+                  { value: 'ALL', label: 'SEMUA' },
+                  { value: 'HIGH', label: 'HIGH' },
+                  { value: 'MEDIUM', label: 'MID' },
+                  { value: 'LOW', label: 'LOW' }
+                ].map((filter) => (
+                  <button
+                    key={filter.value}
+                    onClick={() => setImpactFilter(filter.value as any)}
+                    className={`flex-1 text-[8px] font-bold uppercase tracking-widest py-1.5 rounded transition-all ${
+                      impactFilter === filter.value 
+                        ? 'bg-violet-500 text-white shadow-[0_0_10px_rgba(139,92,246,0.3)]' 
+                        : 'text-white/40 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    {filter.label}
+                  </button>
+                ))}
+              </div>
             </div>
-            {loading ? (
+            {(!data && loading) ? (
               <div className="space-y-2 animate-pulse">
                 <div className="h-10 bg-white/5 rounded"></div>
                 <div className="h-10 bg-white/5 rounded"></div>
@@ -1968,18 +2106,19 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                 <span className="text-[7px] px-1 bg-blue-500/20 text-blue-400 rounded border border-blue-500/30 font-bold animate-pulse">LIVE SYNC</span>
               </div>
               {data && (
-                <button 
-                  onClick={() => {
-                    const pairLevels = selectedPair === 'XAU/USD' ? data.swingLevels.xau : data.swingLevels.btc;
-                    const levels = logAction === 'BUY' ? pairLevels.buy : pairLevels.sell;
-                    setLogEntry(levels.entry || '');
-                    setLogSL(levels.sl || '');
-                    setLogTP(levels.tp || '');
-                  }}
-                  className="text-[8px] text-indigo-500 drop-shadow-[0_0_10px_rgba(99,102,241,0.8)]/60 hover:text-indigo-500 drop-shadow-[0_0_10px_rgba(99,102,241,0.8)] font-bold uppercase tracking-widest transition-colors"
-                >
-                  Gunakan Level Sistem
-                </button>
+                <div className="flex items-center gap-2">
+                  <span className="text-[8px] text-white/40 uppercase tracking-widest font-bold">MODE KUSTOM</span>
+                  <button 
+                    onClick={handleToggleCustomSwing}
+                    className={`relative w-8 h-4 rounded-full transition-colors flex items-center px-0.5 ${
+                      useCustomSwing ? 'bg-violet-500/80 shadow-[0_0_10px_rgba(139,92,246,0.5)]' : 'bg-white/10'
+                    }`}
+                  >
+                    <div className={`w-3 h-3 rounded-full bg-white transition-all transform ${
+                      useCustomSwing ? 'translate-x-4 shadow-[0_0_5px_rgba(255,255,255,0.8)]' : 'translate-x-0 opacity-50'
+                    }`} />
+                  </button>
+                </div>
               )}
             </div>
             <div className="space-y-4">

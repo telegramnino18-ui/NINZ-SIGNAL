@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, db, onSnapshot, query, orderBy, where, doc, updateDoc, Timestamp, handleFirestoreError, OperationType } from '../firebase';
-import { TrendingUp, TrendingDown, Clock, Lock, Eye, ChevronRight, AlertCircle, CheckCircle2, Copy } from 'lucide-react';
+import { collection, db, onSnapshot, query, orderBy, where, doc, updateDoc, deleteDoc, Timestamp, handleFirestoreError, OperationType } from '../firebase';
+import { TrendingUp, TrendingDown, Clock, Lock, Eye, ChevronRight, AlertCircle, CheckCircle2, Copy, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -11,6 +11,12 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
   const [loading, setLoading] = useState(true);
   const [pairFilter, setPairFilter] = useState<'ALL' | 'XAU/USD' | 'BTC/USD'>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'active' | 'closed'>('ALL');
+  const [currentTime, setCurrentTime] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentTime(Date.now()), 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   const filteredSignals = useMemo(() => {
     return signals.filter(signal => {
@@ -52,6 +58,17 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
     });
   };
 
+  const handleDeleteSignal = async (signalId: string) => {
+    try {
+      await deleteDoc(doc(db, 'signals', signalId));
+      toast.success('Sinyal berhasil dihapus!');
+    } catch (error) {
+      console.error('Error deleting signal:', error);
+      toast.error('Gagal menghapus sinyal.');
+      handleFirestoreError(error, OperationType.DELETE, 'signals');
+    }
+  };
+
   const handleViewSignal = async (signalId: string) => {
     if (viewedSignals.includes(signalId)) return;
 
@@ -59,8 +76,8 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
     const isNewDay = profile.lastAccessDate !== today;
     const currentCount = isNewDay ? 0 : (profile.dailyAccessCount || 0);
 
-    if (profile.membership === 'free' && currentCount >= 9) {
-      toast.error('Batas harian tercapai (9/9). Tingkatkan ke Premium untuk akses tanpa batas!', {
+    if (profile.membership === 'free' && currentCount >= 1) {
+      toast.error('Batas harian Free Member tercapai (1/1). Tingkatkan ke Premium untuk akses tanpa batas!', {
         icon: '🔒',
         style: { borderRadius: '12px', background: '#0A0A0A', color: '#fff', border: '1px solid #ffffff10' }
       });
@@ -204,9 +221,13 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
               <div className="text-xs font-bold whitespace-nowrap">
                 {profile?.membership === 'premium' ? (
                   <span className="text-violet-500">Premium Unlimited</span>
+                ) : profile?.membership === 'free' ? (
+                  <span className={profile?.dailyAccessCount >= 1 ? 'text-white/40' : 'text-white'}>
+                    Free Member ({profile?.dailyAccessCount || 0}/1)
+                  </span>
                 ) : (
                   <span className={profile?.dailyAccessCount >= 9 ? 'text-purple-500 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]' : 'text-white'}>
-                    {profile?.dailyAccessCount}/9
+                    {profile?.dailyAccessCount || 0}/9
                   </span>
                 )}
               </div>
@@ -221,13 +242,24 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredSignals.map((signal, i) => {
           const isViewed = profile?.membership === 'premium' || viewedSignals.includes(signal.id) || signal.status === 'closed';
+          const signalTime = signal.createdAt?.toMillis() || Date.now();
+          const signalAgeMinutes = (currentTime - signalTime) / 1000 / 60;
+          const isDelayed = profile?.membership === 'free' && signalAgeMinutes < 5;
+          const delayRemaining = Math.max(0, Math.ceil(5 - signalAgeMinutes));
           
           return (
             <motion.div
-              key={signal.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05 }}
+              layout
+              key={`${signal.id}-${signal.status}`}
+              initial={{ opacity: 0, y: 30, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ 
+                duration: 0.4, 
+                delay: Math.min(i * 0.05, 0.5), 
+                type: "spring", 
+                stiffness: 260, 
+                damping: 20 
+              }}
               className="bg-[#0A0A0A] border border-white/5 rounded-2xl overflow-hidden group hover:border-violet-500/30 transition-all"
             >
               {/* Header */}
@@ -243,10 +275,23 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
                     </div>
                   </div>
                 </div>
-                <div className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest ${
-                  signal.status === 'active' ? 'bg-indigo-400/10 text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)] animate-pulse' : 'bg-white/10 text-white/40'
-                }`}>
-                  {signal.status === 'active' ? 'Aktif' : 'Selesai'}
+                <div className="flex items-center gap-2">
+                  {profile?.role === 'admin' && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteSignal(signal.id);
+                      }}
+                      className="p-1 px-2 bg-red-500/10 text-red-500 rounded text-[10px] uppercase font-bold tracking-widest hover:bg-red-500/20 transition-colors border border-red-500/20"
+                    >
+                      Hapus
+                    </button>
+                  )}
+                  <div className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest ${
+                    signal.status === 'active' ? 'bg-indigo-400/10 text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)] animate-pulse' : 'bg-white/10 text-white/40'
+                  }`}>
+                    {signal.status === 'active' ? 'Aktif' : 'Selesai'}
+                  </div>
                 </div>
               </div>
 
@@ -256,13 +301,39 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
                   <div className="absolute inset-0 z-10 backdrop-blur-md bg-black/40 flex flex-col items-center justify-center p-6 text-center">
                     <Lock className="text-violet-500 mb-3" size={32} />
                     <h3 className="font-bold text-sm mb-1">Sinyal Terkunci</h3>
-                    <p className="text-[10px] text-white/60 mb-4">Klik di bawah untuk membuka sinyal ini menggunakan kuota harian Anda.</p>
-                    <button
-                      onClick={() => handleViewSignal(signal.id)}
-                      className="bg-white text-black px-6 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-gray-200 transition-all shadow-lg shadow-white/20"
-                    >
-                      Buka Sinyal
-                    </button>
+                    {profile?.membership === 'free' ? (
+                      isDelayed ? (
+                        <>
+                          <p className="text-[10px] text-white/60 mb-4 tracking-widest leading-relaxed">DELAY 5 MENIT UNTUK PENGGUNA FREE.<br/><span className="text-violet-500">UPGRADE PREMIUM UNTUK AKSES REALTIME.</span></p>
+                          <button
+                            disabled
+                            className="bg-white/10 text-white/40 px-6 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest cursor-not-allowed border border-white/5"
+                          >
+                            Terkunci ({delayRemaining} Menit)
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-[10px] text-white/60 mb-4 tracking-widest leading-relaxed">Sinyal tesedia. Anda memiliki akses 1 sinyal per hari. Gunakan kuota untuk membuka.</p>
+                          <button
+                            onClick={() => handleViewSignal(signal.id)}
+                            className="bg-white text-black px-6 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-gray-200 transition-all shadow-lg shadow-white/20"
+                          >
+                            Buka Sinyal
+                          </button>
+                        </>
+                      )
+                    ) : (
+                      <>
+                        <p className="text-[10px] text-white/60 mb-4">Klik di bawah untuk membuka sinyal ini menggunakan kuota harian Anda.</p>
+                        <button
+                          onClick={() => handleViewSignal(signal.id)}
+                          className="bg-white text-black px-6 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-gray-200 transition-all shadow-lg shadow-white/20"
+                        >
+                          Buka Sinyal
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
 

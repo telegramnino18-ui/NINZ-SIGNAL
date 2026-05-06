@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { collection, db, auth, onSnapshot, query, orderBy, limit, where, handleFirestoreError, OperationType } from '../firebase';
-import { TrendingUp, TrendingDown, Clock, BarChart3, Target, ShieldCheck, ChevronRight } from 'lucide-react';
+import { TrendingUp, TrendingDown, Clock, BarChart3, Target, ShieldCheck, ChevronRight, Award, Zap, Briefcase } from 'lucide-react';
 import { motion } from 'motion/react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { format } from 'date-fns';
@@ -90,6 +90,18 @@ export const Dashboard = ({ profile }: { profile: any }) => {
 
   return (
     <div className="space-y-8">
+      {(profile?.membership === 'pending' || profile?.membership === 'expired') && (
+        <div className="bg-red-500/10 border border-red-500/30 p-6 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div>
+             <h3 className="text-red-500 font-bold mb-1 tracking-tight">Status Keanggotaan Anda: {profile?.membership === 'pending' ? 'Tunda (Pending)' : 'Kadaluarsa (Expired)'}</h3>
+             <p className="text-xs text-white/60">Selesaikan pembayaran atau perbarui langganan Anda untuk kembali mengakses layanan penuh kami.</p>
+          </div>
+          <Link to="/profile" className="px-6 py-3 bg-red-500 text-white font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-red-600 transition-colors shrink-0 whitespace-nowrap shadow-lg shadow-red-500/20">
+             Perbarui Sekarang
+          </Link>
+        </div>
+      )}
+
       {/* Hero Stats */}
       <div className="flex items-center justify-between mb-2">
         <h2 className="text-sm font-bold text-white/60 uppercase tracking-widest">Statistik Performa</h2>
@@ -98,28 +110,28 @@ export const Dashboard = ({ profile }: { profile: any }) => {
           Auto-refresh: {format(lastUpdated, 'HH:mm:ss')}
         </div>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'Tingkat Kemenangan', value: `${stats.winRate}%`, icon: Target, color: 'text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)]' },
-          { label: 'Total Profit', value: `${stats.totalProfit} pips`, icon: BarChart3, color: 'text-violet-500' },
-          { label: 'Total Trade', value: stats.totalTrades, icon: TrendingUp, color: 'text-blue-500' },
-          { label: 'Batas Harian', value: profile?.membership === 'premium' ? 'Tanpa Batas' : `${profile?.dailyAccessCount}/9`, icon: ShieldCheck, color: 'text-indigo-500 drop-shadow-[0_0_10px_rgba(99,102,241,0.8)]' },
+          { label: 'Tingkat Kemenangan', value: `${stats.winRate}%`, icon: Award, color: 'text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.8)]', bgColor: 'bg-amber-400/10' },
+          { label: 'Total Profit', value: `${stats.totalProfit} pips`, icon: Zap, color: 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.8)]', bgColor: 'bg-emerald-400/10' },
+          { label: 'Total Trade', value: stats.totalTrades, icon: Briefcase, color: 'text-blue-400 drop-shadow-[0_0_8px_rgba(96,165,250,0.8)]', bgColor: 'bg-blue-400/10' },
+          { label: 'Batas Harian', value: profile?.membership === 'premium' ? 'Tanpa Batas' : `${profile?.dailyAccessCount}/9`, icon: ShieldCheck, color: 'text-violet-400 drop-shadow-[0_0_8px_rgba(167,139,250,0.8)]', bgColor: 'bg-violet-400/10' },
         ].map((stat, i) => (
           <motion.div
             key={stat.label}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: i * 0.1 }}
-            className="bg-[#0A0A0A] border border-white/5 p-6 rounded-2xl"
+            className="bg-[#0A0A0A] border border-white/5 p-4 rounded-xl flex items-center gap-4 relative overflow-hidden"
           >
-            <div className="flex items-center justify-between mb-4">
-              <div className={`p-2 rounded-lg bg-white/5 ${stat.color}`}>
-                <stat.icon size={20} />
-              </div>
-              <span className="text-[10px] uppercase tracking-widest text-white/40 font-bold">Langsung</span>
+            <div className={`p-3 rounded-xl ${stat.bgColor}`}>
+              <stat.icon size={20} className={stat.color} />
             </div>
-            <div className="text-2xl font-bold tracking-tight">{stat.value}</div>
-            <div className="text-xs text-white/40 mt-1">{stat.label}</div>
+            <div className="relative z-10">
+              <div className="text-[10px] text-white/40 uppercase tracking-widest font-bold mb-1">{stat.label}</div>
+              <div className="text-xl font-black tracking-tight text-white/90">{stat.value}</div>
+            </div>
+            <div className={`absolute -right-6 -bottom-6 w-24 h-24 rounded-full blur-3xl opacity-20 ${stat.bgColor}`}></div>
           </motion.div>
         ))}
       </div>

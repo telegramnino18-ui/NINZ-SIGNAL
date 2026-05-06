@@ -51,10 +51,10 @@ export default function App() {
             // Create new user profile if it doesn't exist
             const newProfile = {
               uid: currentUser.uid,
-              email: currentUser.email,
-              displayName: currentUser.displayName || currentUser.email?.split('@')[0] || 'User',
+              email: currentUser.email || `guest_${currentUser.uid.slice(0,5)}@guest.com`,
+              displayName: currentUser.isAnonymous ? 'Guest' : (currentUser.displayName || currentUser.email?.split('@')[0] || 'User'),
               role: isAdmin ? 'admin' : 'user',
-              membership: isAdmin ? 'premium' : 'pending', // Give admin premium access by default
+              membership: isAdmin ? 'premium' : (currentUser.isAnonymous ? 'free' : 'pending'), // Give admin premium access by default
               dailyAccessCount: 0,
               lastAccessDate: new Date().toISOString().split('T')[0],
               notificationSettings: { email: true, push: true }

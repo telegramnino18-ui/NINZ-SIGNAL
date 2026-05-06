@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { auth, signInWithEmailAndPassword, createUserWithEmailAndPassword, db, doc, setDoc, getDoc, Timestamp } from '../firebase';
-import { RecaptchaVerifier, signInWithPhoneNumber, ConfirmationResult } from 'firebase/auth';
+import { auth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInAnonymously, db, doc, setDoc, getDoc, Timestamp } from '../firebase';
 import { motion } from 'motion/react';
-import { TrendingUp, ShieldCheck, BarChart3, Target, ChevronRight, Lock, Key, User, MessageCircle, CheckCircle2, ArrowLeft, Phone } from 'lucide-react';
+import { TrendingUp, ShieldCheck, BarChart3, Target, ChevronRight, Lock, Key, User, MessageCircle, CheckCircle2, ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { sendDiscordNotification } from '../services/discordService';
 import { Logo } from './Logo';
@@ -15,13 +14,6 @@ export const Auth = () => {
   // Username/Password Auth States
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  
-  // WA/Phone Auth States
-  const [loginMethod, setLoginMethod] = useState<'username' | 'wa'>('username');
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
-  const [otp, setOtp] = useState('');
-  const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
 
   const [isOver18, setIsOver18] = useState(false);
 
@@ -59,6 +51,24 @@ export const Auth = () => {
     },
   ];
 
+  const handleGuestLogin = async () => {
+    if (isLoading) return;
+    setIsLoading(true);
+    try {
+      await signInAnonymously(auth);
+      // Let App.tsx handle creation of guest profile
+    } catch (error: any) {
+      console.error('Guest login error:', error);
+      if (error.code === 'auth/admin-restricted-operation' || error.code === 'auth/operation-not-allowed') {
+        toast.error('Login Guest (Anonymous) belum diaktifkan di Firebase Console.', { duration: 6000 });
+      } else {
+        toast.error('Gagal mengakses akun Free.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isLoading) return;
@@ -85,7 +95,8 @@ export const Auth = () => {
         });
       }
 
-      const loginEmail = username.includes('@') ? username : `${username}@ninzsignal.com`;
+      const sanitizedUsername = username.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const loginEmail = username.includes('@') ? username : `${sanitizedUsername || 'user'}@ninzsignal.com`;
       await signInWithEmailAndPassword(auth, loginEmail, password);
       toast.success('Selamat datang kembali!', {
         style: { borderRadius: '12px', background: '#0A0A0A', color: '#fff', border: '1px solid #ffffff10' }
@@ -103,7 +114,11 @@ export const Auth = () => {
       }
     } catch (error: any) {
       console.error('Login error:', error);
-      toast.error('Username atau password salah.');
+      if (error.code === 'auth/operation-not-allowed') {
+        toast.error('Login via Username/Password belum diaktifkan di Firebase Console. Gunakan Google Login.', { duration: 6000 });
+      } else {
+        toast.error('Username atau password salah.');
+      }
       
       const settingsDoc = await getDoc(doc(db, 'settings', 'global'));
       const discordWebhookUrl = settingsDoc.exists() ? settingsDoc.data().discordWebhook : null;
@@ -112,153 +127,6 @@ export const Auth = () => {
           content: `🚫 **LOGIN FAILED**\n\n> User \`${username}\` failed to login. Invalid password.`,
           embeds: [{
             title: "🔴 Failed Login Attempt",
-            color: 0xEF4444, // Red
-            timestamp: new Date().toISOString()
-          }]
-        });
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleSendOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!phoneNumber) {
-      toast.error('Masukkan nomor WhatsApp (dengan kode negara, misal: +62812...)');
-      return;
-    }
-    
-    // Format to E.164
-    let formattedPhone = phoneNumber.replace(/[^0-9+]/g, '');
-    if (formattedPhone.startsWith('08')) {
-      formattedPhone = '+62' + formattedPhone.substring(1);
-    } else if (formattedPhone.startsWith('8')) {
-      formattedPhone = '+62' + formattedPhone;
-    } else if (!formattedPhone.startsWith('+')) {
-      formattedPhone = '+' + formattedPhone;
-    }
-
-    setIsLoading(true);
-    try {
-      const settingsDoc = await getDoc(doc(db, 'settings', 'global'));
-      const discordWebhookUrl = settingsDoc.exists() ? settingsDoc.data().discordWebhook : null;
-
-      if (discordWebhookUrl) {
-        await sendDiscordNotification(discordWebhookUrl, {
-          content: `⚠️ **ALERT: OTP REQUESTED**\n\n> Someone is trying to login via Phone with: \`${formattedPhone}\``,
-          embeds: [{
-            title: "🔐 OTP Request Activity",
-            description: `A user has initiated an OTP request.\n\n**Details:**\n• **Phone:** \`${formattedPhone}\`\n• **Time:** ${new Date().toLocaleString()}`,
-            color: 0xF59E0B, // Amber
-            timestamp: new Date().toISOString()
-          }]
-        });
-      }
-
-      if (!(window as any).recaptchaVerifier) {
-        (window as any).recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
-          'size': 'invisible',
-        });
-      }
-
-      const confirmation = await signInWithPhoneNumber(auth, formattedPhone, (window as any).recaptchaVerifier);
-      setConfirmationResult(confirmation);
-      setOtpSent(true);
-      toast.success('Kode OTP telah dikirim melalui WA/SMS.', {
-        style: { borderRadius: '12px', background: '#0A0A0A', color: '#fff', border: '1px solid #3b82f6' }
-      });
-      
-    } catch (error: any) {
-      console.error('Phone auth error:', error);
-      if (error.code === 'auth/operation-not-allowed') {
-        toast.error('Gagal: Login via WA/Phone belum diaktifkan di Firebase Console. Gunakan Username/Password sementara.', { duration: 6000 });
-      } else if (error.code === 'auth/unauthorized-domain') {
-        toast.error('Domain belum diotorisasi untuk Phone Auth. Tambahkan domain ini ke Firebase Console.', { duration: 6000 });
-      } else {
-        toast.error('Gagal mengirim OTP. Pastikan nomor valid (gunakan +62...).');
-      }
-      
-      const settingsDoc = await getDoc(doc(db, 'settings', 'global'));
-      const discordWebhookUrl = settingsDoc.exists() ? settingsDoc.data().discordWebhook : null;
-      if (discordWebhookUrl) {
-        await sendDiscordNotification(discordWebhookUrl, {
-          content: `🚫 **OTP SEND FAILED**\n\n> Failed to send OTP to: \`${formattedPhone}\`\n> Error: ${error.message || 'Unknown Error'}`,
-          embeds: [{
-            title: "🔴 Failed OTP Request",
-            color: 0xEF4444, // Red
-            timestamp: new Date().toISOString()
-          }]
-        });
-      }
-
-      // Reset reCAPTCHA just in case
-      if ((window as any).recaptchaVerifier) {
-        (window as any).recaptchaVerifier.clear();
-        (window as any).recaptchaVerifier = null;
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleVerifyOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!otp || !confirmationResult) return;
-    setIsLoading(true);
-    let formattedPhone = phoneNumber;
-    try {
-      const result = await confirmationResult.confirm(otp);
-      formattedPhone = result.user.phoneNumber || phoneNumber;
-      
-      // Ensure user info exists in Firestore (basic creation if not exists)
-      try {
-        const userDoc = await getDoc(doc(db, 'users', result.user.uid));
-        if (!userDoc.exists()) {
-          await setDoc(doc(db, 'users', result.user.uid), {
-            uid: result.user.uid,
-            phoneNumber: result.user.phoneNumber,
-            displayName: result.user.phoneNumber,
-            role: 'user',
-            membership: 'pending',
-            dailyAccessCount: 0,
-            lastAccessDate: new Date().toISOString().split('T')[0],
-            createdAt: Timestamp.now()
-          });
-        }
-      } catch (dbErr) {
-        console.error('Failed to sync WA user to firestore:', dbErr);
-      }
-
-      toast.success('Login WA Berhasil!', {
-        style: { borderRadius: '12px', background: '#0A0A0A', color: '#fff', border: '1px solid #3b82f6' }
-      });
-      
-      const settingsDoc = await getDoc(doc(db, 'settings', 'global'));
-      const discordWebhookUrl = settingsDoc.exists() ? settingsDoc.data().discordWebhook : null;
-      if (discordWebhookUrl) {
-        await sendDiscordNotification(discordWebhookUrl, {
-          content: `✅ **OTP LOGIN SUCCESS**\n\n> User with phone \`${formattedPhone}\` successfully logged in.`,
-          embeds: [{
-            title: "🟢 Successful OTP Login",
-            color: 0x22C55E, // Green
-            timestamp: new Date().toISOString()
-          }]
-        });
-      }
-      
-      // Auth change will trigger parent app redirect
-    } catch (error) {
-      console.error('OTP verify error:', error);
-      toast.error('Kode OTP salah atau kadaluarsa.');
-      
-      const settingsDoc = await getDoc(doc(db, 'settings', 'global'));
-      const discordWebhookUrl = settingsDoc.exists() ? settingsDoc.data().discordWebhook : null;
-      if (discordWebhookUrl) {
-        await sendDiscordNotification(discordWebhookUrl, {
-          content: `🚫 **OTP VERIFY FAILED**\n\n> Failed to verify OTP for phone: \`${formattedPhone}\``,
-          embeds: [{
-            title: "🔴 Failed OTP Verification",
             color: 0xEF4444, // Red
             timestamp: new Date().toISOString()
           }]
@@ -293,7 +161,8 @@ export const Auth = () => {
     }
     setIsLoading(true);
     try {
-      const loginEmail = username.includes('@') ? username : `${username}@ninzsignal.com`;
+      const sanitizedUsername = username.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const loginEmail = username.includes('@') ? username : `${sanitizedUsername || 'user'}@ninzsignal.com`;
       const userCredential = await createUserWithEmailAndPassword(auth, loginEmail, password);
       
       // Create user document in Firestore with retry mechanism
@@ -336,6 +205,8 @@ export const Auth = () => {
       console.error('Register error:', error);
       if (error.code === 'auth/email-already-in-use') {
         toast.error('Username sudah digunakan. Silakan pilih yang lain.');
+      } else if (error.code === 'auth/operation-not-allowed') {
+        toast.error('Registrasi via Username belum diaktifkan. Silakan gunakan Login dengan Google.', { duration: 6000 });
       } else {
         toast.error('Gagal membuat akun.');
       }
@@ -368,6 +239,25 @@ export const Auth = () => {
             </div>
 
             <div className="space-y-6">
+              <button
+                type="button"
+                onClick={handleGuestLogin}
+                disabled={isLoading}
+                className={`w-full bg-transparent border-2 border-dashed border-white/20 text-white py-4 rounded-[32px] font-bold uppercase tracking-widest text-xs transition-all flex flex-col items-center justify-center gap-2 ${
+                  isLoading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-white/5 hover:border-white/40'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  {isLoading ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-white/50"></div>
+                  ) : (
+                    <Lock size={16} className="text-white/50" />
+                  )}
+                  Coba Akses Free
+                </div>
+                <span className="text-[9px] text-white/40 normal-case tracking-normal">Akses terbatas hanya untuk melihat daftar fitur</span>
+              </button>
+
               {packages.map((pkg) => (
                 <div key={pkg.id} className="bg-[#0A0A0A]/60 backdrop-blur-xl border border-indigo-500/30 rounded-[32px] p-6 relative overflow-hidden shadow-2xl shadow-indigo-500/5">
                   {pkg.bestValue && (
@@ -457,12 +347,12 @@ export const Auth = () => {
                   <input
                     type="text"
                     value={username}
-                    onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, ''))}
+                    onChange={(e) => setUsername(e.target.value)}
                     className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm text-black placeholder-white/20 focus:outline-none focus:border-indigo-500/50 focus:bg-white/5 transition-all"
-                    placeholder="Contoh: traderpro99"
+                    placeholder="Contoh: TraderPro99"
                   />
                 </div>
-                <p className="text-[9px] text-white/30 mt-2 ml-2">Hanya huruf kecil dan angka, tanpa spasi.</p>
+                <p className="text-[9px] text-white/30 mt-2 ml-2">Masukkan username akun Anda.</p>
               </div>
               <div>
                 <label className="block text-[10px] uppercase tracking-widest text-white/40 font-bold mb-2 ml-2">Password Baru</label>
@@ -537,71 +427,48 @@ export const Auth = () => {
 
             <div className="text-center mb-8 mt-4">
               <div className="w-16 h-16 bg-white rounded-2xl mx-auto flex items-center justify-center shadow-[0_0_30px_rgba(255,255,255,0.3)] mb-4 rotate-12">
-                {loginMethod === 'username' ? (
-                  <Lock size={32} className="text-black" />
-                ) : (
-                  <Phone size={32} className="text-black" />
-                )}
+                <Lock size={32} className="text-black" />
               </div>
               <h2 className="text-xl font-bold tracking-widest uppercase mb-2">Masuk Akun</h2>
               <p className="text-[10px] text-white/40 uppercase tracking-widest">Akses Dashboard Sinyal Anda</p>
             </div>
 
-            <div className="flex bg-white/5 p-1 rounded-xl mb-6">
-              <button
-                onClick={() => setLoginMethod('username')}
-                className={`flex-1 text-[10px] uppercase tracking-widest font-bold py-3 rounded-lg transition-all ${
-                  loginMethod === 'username' ? 'bg-white text-black shadow-[0_0_15px_rgba(255,255,255,0.2)]' : 'text-white/40 hover:text-white'
-                }`}
-              >
-                Via Username
-              </button>
-              <button
-                onClick={() => setLoginMethod('wa')}
-                className={`flex-1 text-[10px] uppercase tracking-widest font-bold py-3 rounded-lg transition-all ${
-                  loginMethod === 'wa' ? 'bg-white text-black shadow-[0_0_15px_rgba(255,255,255,0.2)]' : 'text-white/40 hover:text-white'
-                }`}
-              >
-                Via Phone/WA
-              </button>
-            </div>
-
-            {loginMethod === 'username' ? (
-              <form onSubmit={handleLogin} className="space-y-5 text-left">
-                <div>
-                  <label className="block text-[10px] uppercase tracking-widest text-white/40 font-bold mb-2 ml-2">Username</label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-white/40">
-                      <User size={18} />
-                    </div>
-                    <input
-                      type="text"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm text-black placeholder-white/20 focus:outline-none focus:border-violet-500/50 focus:bg-white/5 transition-all"
-                      placeholder="Masukkan username"
-                    />
+            <form onSubmit={handleLogin} className="space-y-5 text-left">
+              <div>
+                <label className="block text-[10px] uppercase tracking-widest text-white/40 font-bold mb-2 ml-2">Username</label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-white/40">
+                    <User size={18} />
                   </div>
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm text-black placeholder-white/20 focus:outline-none focus:border-violet-500/50 focus:bg-white/5 transition-all"
+                    placeholder="Masukkan username"
+                  />
                 </div>
-                <div>
-                  <label className="block text-[10px] uppercase tracking-widest text-white/40 font-bold mb-2 ml-2">Password</label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-white/40">
-                      <Key size={18} />
-                    </div>
-                    <input
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm text-black placeholder-white/20 focus:outline-none focus:border-violet-500/50 focus:bg-white/5 transition-all"
-                      placeholder="Masukkan password"
-                    />
+              </div>
+              <div>
+                <label className="block text-[10px] uppercase tracking-widest text-white/40 font-bold mb-2 ml-2">Password</label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-white/40">
+                    <Key size={18} />
                   </div>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm text-black placeholder-white/20 focus:outline-none focus:border-violet-500/50 focus:bg-white/5 transition-all"
+                    placeholder="Masukkan password"
+                  />
                 </div>
+              </div>
+              <div className="flex flex-col gap-3 mt-4">
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className={`w-full bg-white text-black py-4 rounded-2xl font-bold uppercase tracking-widest text-xs transition-all shadow-xl shadow-[0_0_20px_rgba(255,255,255,0.2)] flex items-center justify-center gap-3 mt-4 ${
+                  className={`w-full bg-white text-black py-4 rounded-2xl font-bold uppercase tracking-widest text-xs transition-all shadow-xl shadow-[0_0_20px_rgba(255,255,255,0.2)] flex items-center justify-center gap-3 ${
                     isLoading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-200'
                   }`}
                 >
@@ -612,62 +479,8 @@ export const Auth = () => {
                   )}
                   {isLoading ? 'Memproses...' : 'Masuk Dashboard'}
                 </button>
-              </form>
-            ) : (
-              <form onSubmit={otpSent ? handleVerifyOtp : handleSendOtp} className="space-y-5 text-left">
-                {!otpSent ? (
-                  <div>
-                    <label className="block text-[10px] uppercase tracking-widest text-white/40 font-bold mb-2 ml-2">Nomor WhatsApp/HP</label>
-                    <div className="relative">
-                      <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-white/40">
-                        <Phone size={18} />
-                      </div>
-                      <input
-                        type="text"
-                        value={phoneNumber}
-                        onChange={(e) => setPhoneNumber(e.target.value)}
-                        className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm text-white placeholder-white/20 focus:outline-none focus:border-blue-500/50 focus:bg-blue-500/5 transition-all"
-                        placeholder="Contoh: +6281234..."
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    <label className="block text-[10px] uppercase tracking-widest text-white/40 font-bold mb-2 ml-2">Kode OTP</label>
-                    <div className="relative">
-                      <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-white/40">
-                        <Key size={18} />
-                      </div>
-                      <input
-                        type="text"
-                        value={otp}
-                        onChange={(e) => setOtp(e.target.value)}
-                        className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm text-white placeholder-white/20 focus:outline-none focus:border-blue-500/50 focus:bg-blue-500/5 transition-all text-center tracking-[0.5em] font-mono font-bold"
-                        placeholder="------"
-                        maxLength={6}
-                      />
-                    </div>
-                  </div>
-                )}
-                
-                <div id="recaptcha-container"></div>
-                
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className={`w-full bg-white text-black py-4 rounded-2xl font-bold uppercase tracking-widest text-xs transition-all shadow-xl shadow-[0_0_20px_rgba(255,255,255,0.2)] flex items-center justify-center gap-3 mt-4 ${
-                    isLoading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-200'
-                  }`}
-                >
-                  {isLoading ? (
-                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-black"></div>
-                  ) : (
-                    <ChevronRight size={16} />
-                  )}
-                  {isLoading ? 'Memproses...' : (otpSent ? 'Login' : 'Kirim OTP')}
-                </button>
-              </form>
-            )}
+              </div>
+            </form>
           </motion.div>
         )}
 
