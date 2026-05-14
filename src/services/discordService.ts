@@ -39,6 +39,7 @@ export const formatSignalMessage = (signal: {
   sl: number | string;
   analysis?: string;
   setupType?: string;
+  tradeType?: string;
   confirmations?: string[];
 }) => {
   const isBuy = signal.action.toUpperCase() === 'BUY';
@@ -52,12 +53,14 @@ export const formatSignalMessage = (signal: {
     : 'https://cdn-icons-png.flaticon.com/512/5968/5968260.png'; // BTC icon
 
   const confirmationText = signal.confirmations?.map(c => `• ${c}`).join('\n') || '• Analisis Struktur\n• Konfirmasi Volume\n• Indikator Momentum';
+  
+  const typeText = signal.tradeType && signal.tradeType !== 'REGULAR' ? `[${signal.tradeType}] ` : '';
 
   return {
     content: "@everyone 🚀 **SINYAL TRADING MATANG TERDETEKSI!**",
     embeds: [
       {
-        title: `${actionEmoji} ${signal.pair} - ${actionText}`,
+        title: `${actionEmoji} ${typeText}${signal.pair} - ${actionText}`,
         description: `**Setup:** \`${signal.setupType || 'High Probability'}\`\n\n> ${signal.analysis || 'Analisis pasar real-time telah diperbarui oleh Ninz AI.'}`,
         color: color,
         thumbnail: {

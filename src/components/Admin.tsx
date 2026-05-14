@@ -15,6 +15,7 @@ export const Admin = () => {
   const [newSignal, setNewSignal] = useState({
     pair: 'XAU/USD',
     action: 'BUY',
+    tradeType: 'REGULAR',
     entryPrice: '',
     tp: '',
     sl: '',
@@ -71,14 +72,14 @@ export const Admin = () => {
       
       await addDoc(collection(db, 'signals'), signalData);
 
-      // Send Discord Notification
+      // Send Notifications
       if (settings.discordWebhook) {
         const discordMsg = formatSignalMessage(signalData);
         await sendDiscordNotification(settings.discordWebhook, discordMsg);
       }
 
       setShowAddModal(false);
-      setNewSignal({ pair: 'XAU/USD', action: 'BUY', entryPrice: '', tp: '', sl: '', analysis: '' });
+      setNewSignal({ pair: 'XAU/USD', action: 'BUY', tradeType: 'REGULAR', entryPrice: '', tp: '', sl: '', analysis: '' });
       toast.success('Sinyal berhasil diposting!', {
         style: { borderRadius: '12px', background: '#0A0A0A', color: '#fff', border: '1px solid #ffffff10' }
       });
@@ -200,7 +201,11 @@ export const Admin = () => {
               <div key={signal.id} className="bg-[#0A0A0A] border border-white/5 rounded-2xl p-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className={`p-2 rounded-lg ${signal.pair === 'XAU/USD' ? 'bg-blue-500/10 text-blue-500' : 'bg-violet-500/10 text-violet-500'}`}>
+                    <div className={`p-2 rounded-lg ${
+                      signal.pair.includes('BTC') || signal.pair.includes('ETH') || signal.pair.includes('SOL') || signal.pair.includes('BNB') ? 'bg-orange-500/10 text-orange-500' :
+                      signal.pair.includes('XAU') || signal.pair.includes('XAG') || signal.pair.includes('WTI') || signal.pair.includes('BRENT') ? 'bg-amber-400/10 text-amber-400' :
+                      'bg-blue-500/10 text-blue-500'
+                    }`}>
                       <TrendingUp size={16} />
                     </div>
                     <div className="font-bold text-sm tracking-tight">{signal.pair}</div>
@@ -259,6 +264,7 @@ export const Admin = () => {
                 <tr>
                   <th className="px-6 py-4">Username</th>
                   <th className="px-6 py-4">Status</th>
+                  <th className="px-6 py-4">Role</th>
                   <th className="px-6 py-4">Paket Dipilih</th>
                   <th className="px-6 py-4">Aksi</th>
                 </tr>
@@ -281,6 +287,25 @@ export const Admin = () => {
                           Pending
                         </span>
                       )}
+                    </td>
+                    <td className="px-6 py-4">
+                      <select
+                        value={user.role || 'user'}
+                        onChange={async (e) => {
+                          try {
+                            await updateDoc(doc(db, 'users', user.id), { role: e.target.value });
+                            toast.success('Role berhasil diubah!');
+                          } catch (error) {
+                            toast.error('Gagal mengubah role.');
+                          }
+                        }}
+                        className="bg-white/5 border border-white/10 rounded-lg p-2 text-xs focus:border-indigo-500 outline-none"
+                      >
+                        <option value="user">User</option>
+                        <option value="reseller">Reseller</option>
+                        <option value="owner">Owner</option>
+                        <option value="admin">Admin</option>
+                      </select>
                     </td>
                     <td className="px-6 py-4 text-white/60">{user.selectedPackage || '-'}</td>
                     <td className="px-6 py-4 flex items-center gap-2">
@@ -340,7 +365,7 @@ export const Admin = () => {
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-6">
               <button
                 onClick={async () => {
                   try {
@@ -399,13 +424,13 @@ export const Admin = () => {
               <h2 className="text-2xl font-bold tracking-tight mb-6">Posting Sinyal Baru</h2>
               
               <form onSubmit={handleAddSignal} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold">Pair</label>
                     <select
                       value={newSignal.pair}
                       onChange={(e) => setNewSignal({ ...newSignal, pair: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm focus:border-violet-500 outline-none"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm focus:border-violet-500 outline-none select-none appearance-none cursor-pointer"
                     >
                       <option value="XAU/USD">XAU/USD</option>
                       <option value="BTC/USD">BTC/USD</option>
@@ -420,6 +445,19 @@ export const Admin = () => {
                     >
                       <option value="BUY">BELI</option>
                       <option value="SELL">JUAL</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold">Tipe</label>
+                    <select
+                      value={newSignal.tradeType}
+                      onChange={(e) => setNewSignal({ ...newSignal, tradeType: e.target.value })}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm focus:border-violet-500 outline-none"
+                    >
+                      <option value="REGULAR">Reguler</option>
+                      <option value="SCALPING">Scalping</option>
+                      <option value="SWING">Swing</option>
+                      <option value="FM">FM</option>
                     </select>
                   </div>
                 </div>

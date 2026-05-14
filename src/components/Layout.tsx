@@ -1,6 +1,6 @@
 import React from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, TrendingUp, BarChart3, User, LogOut, ShieldCheck, Sparkles, Clock, MessageCircle, AlertTriangle } from 'lucide-react';
+import { LayoutDashboard, TrendingUp, BarChart3, User, LogOut, ShieldCheck, Sparkles, Clock, MessageCircle, AlertTriangle, BookOpen, Globe, Users, MonitorPlay } from 'lucide-react';
 import { auth, signOut } from '../firebase';
 import { motion } from 'motion/react';
 import { Logo } from './Logo';
@@ -78,12 +78,17 @@ export const Layout = ({ user, profile }: { user: any, profile: any }) => {
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/signals', label: 'Signal', icon: TrendingUp },
     { path: '/analysis', label: 'Analysis AI', icon: Sparkles },
+    { path: '/news', label: 'Market News', icon: Globe },
     { path: '/performance', label: 'Performa', icon: BarChart3 },
     { path: '/profile', label: 'Profil', icon: User },
   ];
 
-  if (profile?.role === 'admin') {
-    navItems.push({ path: '/admin', label: 'Admin', icon: ShieldCheck });
+  if (profile?.role === 'admin' || profile?.role === 'owner') {
+    navItems.push({ path: '/admin', label: profile?.role === 'owner' ? 'Owner / Admin' : 'Admin', icon: ShieldCheck });
+  }
+
+  if (profile?.role === 'reseller') {
+    navItems.push({ path: '/reseller', label: 'Reseller', icon: Users });
   }
 
   return (
@@ -119,10 +124,10 @@ export const Layout = ({ user, profile }: { user: any, profile: any }) => {
         <div className="p-4 border-t border-white/10">
           <button
             onClick={handleLogout}
-            className="flex items-center gap-3 w-full px-4 py-3 text-white/60 hover:text-purple-400 hover:bg-purple-400/5 rounded-xl transition-all"
+            className="group flex items-center gap-3 w-full px-4 py-3 text-white/60 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-all duration-300 hover:shadow-[0_0_20px_rgba(248,113,113,0.15)] active:scale-95 border border-transparent hover:border-red-400/20"
           >
-            <LogOut size={20} />
-            <span className="font-medium">Keluar</span>
+            <LogOut size={20} className="group-hover:-translate-x-1 group-active:scale-90 transition-all duration-300" />
+            <span className="font-medium group-hover:font-bold transition-all">Keluar</span>
           </button>
         </div>
       </aside>

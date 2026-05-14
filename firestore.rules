@@ -47,6 +47,17 @@ service cloud.firestore {
       
       // Allow admins to do anything
       allow create, update, delete: if isAdmin();
+
+      match /feedbacks/{userId} {
+        // Anyone authenticated can read feedback (or just those who can read signals)
+        allow read: if isAuthenticated();
+        
+        // Users can create/update their own feedback
+        allow create, update: if isOwner(userId);
+        
+        // Users can delete their own, or admin
+        allow delete: if isOwner(userId) || isAdmin();
+      }
     }
 
     // Rules for settings collection

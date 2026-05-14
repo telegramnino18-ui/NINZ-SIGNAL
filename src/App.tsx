@@ -10,6 +10,8 @@ import { Profile } from './components/Profile';
 import { Admin } from './components/Admin';
 import { Analysis } from './components/Analysis';
 import { Auth } from './components/Auth';
+import { NewsCalendar } from './components/NewsCalendar';
+import { ResellerDashboard } from './components/ResellerDashboard';
 import { User } from 'firebase/auth';
 import { Bell } from 'lucide-react';
 
@@ -43,28 +45,37 @@ export default function App() {
             }
           }
           
-          // Hanya traderpro11 yang jadi Admin, tapi SEMUA jadi Premium
-          const isAdmin = currentUser.email === 'traderpro11@ninzsignal.com' || 
-                          currentUser.email === 'telegramnino18@gmail.com';
+          // Only hardcoded initial emails if no role is set, but owner is the absolute highest.
+          const isInitialAdmin = currentUser.email === 'traderpro11@ninzsignal.com';
+          const isInitialOwner = currentUser.email === 'telegramnino18@gmail.com';
             
           if (!userDoc.exists()) {
             // Create new user profile if it doesn't exist
+            let defaultRole = 'user';
+            if (isInitialOwner) defaultRole = 'owner';
+            else if (isInitialAdmin) defaultRole = 'admin';
+
             const newProfile = {
               uid: currentUser.uid,
               email: currentUser.email || `guest_${currentUser.uid.slice(0,5)}@guest.com`,
               displayName: currentUser.isAnonymous ? 'Guest' : (currentUser.displayName || currentUser.email?.split('@')[0] || 'User'),
-              role: isAdmin ? 'admin' : 'user',
-              membership: isAdmin ? 'premium' : (currentUser.isAnonymous ? 'free' : 'pending'), // Give admin premium access by default
+              role: defaultRole,
+              membership: (defaultRole === 'admin' || defaultRole === 'owner') ? 'premium' : (currentUser.isAnonymous ? 'free' : 'pending'),
               dailyAccessCount: 0,
               lastAccessDate: new Date().toISOString().split('T')[0],
               notificationSettings: { email: true, push: true }
             };
             await setDoc(doc(db, 'users', currentUser.uid), newProfile);
           } else {
-            // If document exists but user is admin, ensure they have admin role
+            // If document exists but user needs role upgrade based on email
             const data = userDoc.data();
             
-            if (isAdmin && data.role !== 'admin') {
+            if (isInitialOwner && data.role !== 'owner') {
+               await updateDoc(doc(db, 'users', currentUser.uid), {
+                 role: 'owner',
+                 membership: 'premium'
+               });
+            } else if (isInitialAdmin && data.role !== 'admin' && data.role !== 'owner') {
                await updateDoc(doc(db, 'users', currentUser.uid), {
                  role: 'admin',
                  membership: 'premium'
@@ -77,8 +88,15 @@ export default function App() {
             if (docSnapshot.exists()) {
               const data = docSnapshot.data();
               
-              // Enforce admin privileges if overwritten by Auth.tsx race condition
-              if (isAdmin && (data.role !== 'admin' || data.membership !== 'premium')) {
+              // Enforce owner/admin privileges if overwritten by Auth.tsx race condition
+              if (isInitialOwner && (data.role !== 'owner' || data.membership !== 'premium')) {
+                await updateDoc(doc(db, 'users', currentUser.uid), {
+                  role: 'owner',
+                  membership: 'premium'
+                });
+                return;
+              }
+              if (isInitialAdmin && data.role !== 'owner' && (data.role !== 'admin' || data.membership !== 'premium')) {
                 await updateDoc(doc(db, 'users', currentUser.uid), {
                   role: 'admin',
                   membership: 'premium'
@@ -86,8 +104,8 @@ export default function App() {
                 return; // Snapshot will re-trigger with updated data
               }
               
-              // Check if subscription has expired (skip for admin)
-              if (data.role !== 'admin' && data.membership === 'premium' && data.expiresAt) {
+              // Check if subscription has expired (skip for admin/owner)
+              if (data.role !== 'admin' && data.role !== 'owner' && data.role !== 'reseller' && data.membership === 'premium' && data.expiresAt) {
                 const now = new Date();
                 const expiresAt = data.expiresAt.toDate();
                 if (now > expiresAt) {
@@ -205,9 +223,11 @@ export default function App() {
               <Route path="/" element={<Dashboard profile={userProfile} />} />
               <Route path="/signals" element={<Signals profile={userProfile} setProfile={setUserProfile} />} />
               <Route path="/performance" element={<Performance />} />
+              <Route path="/news" element={<NewsCalendar />} />
               <Route path="/analysis" element={<Analysis userProfile={userProfile} />} />
               <Route path="/profile" element={<Profile profile={userProfile} setProfile={setUserProfile} />} />
-              {userProfile?.role === 'admin' && <Route path="/admin" element={<Admin />} />}
+              {userProfile?.role === 'reseller' && <Route path="/reseller" element={<ResellerDashboard userProfile={userProfile} />} />}
+              {(userProfile?.role === 'admin' || userProfile?.role === 'owner') && <Route path="/admin" element={<Admin />} />}
               <Route path="*" element={<Navigate to="/" />} />
             </Route>
           )}

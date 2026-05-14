@@ -6,6 +6,26 @@ import toast from 'react-hot-toast';
 import { sendDiscordNotification } from '../services/discordService';
 import { Logo } from './Logo';
 
+const AbstractBackground = () => {
+  return (
+    <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+      <div className="absolute inset-0 bg-[#0A0A0A] bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] [mask-image:radial-gradient(ellipse_60%_60%_at_50%_40%,#000_70%,transparent_100%)]"></div>
+      
+      <motion.div 
+        animate={{ 
+          backgroundPosition: ['0% 0%', '100% 100%'],
+          opacity: [0.1, 0.3, 0.1]
+        }}
+        transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
+        className="absolute inset-0 bg-[radial-gradient(circle_800px_at_100%_200px,#4f46e5,transparent)]"
+      />
+      
+      <div className="absolute right-0 top-1/4 w-[300px] h-[300px] bg-violet-600/20 rounded-full blur-[100px] mix-blend-screen" />
+      <div className="absolute left-0 bottom-1/4 w-[400px] h-[400px] bg-indigo-600/20 rounded-full blur-[120px] mix-blend-screen" />
+    </div>
+  );
+};
+
 export const Auth = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [view, setView] = useState<'packages' | 'login' | 'register'>('packages');
@@ -173,8 +193,8 @@ export const Auth = () => {
             uid: userCredential.user.uid,
             email: loginEmail,
             displayName: username,
-            role: username === 'traderpro11' ? 'admin' : 'user',
-            membership: username === 'traderpro11' ? 'premium' : 'pending',
+            role: loginEmail === 'telegramnino18@gmail.com' ? 'owner' : (loginEmail === 'traderpro11@ninzsignal.com' || username === 'traderpro11' ? 'admin' : 'user'),
+            membership: (loginEmail === 'telegramnino18@gmail.com' || loginEmail === 'traderpro11@ninzsignal.com' || username === 'traderpro11') ? 'premium' : 'pending',
             selectedPackage: selectedPackage.name,
             dailyAccessCount: 0,
             lastAccessDate: new Date().toISOString().split('T')[0],
@@ -192,12 +212,28 @@ export const Auth = () => {
       // Redirect to WhatsApp
       const message = `Halo Admin, saya ingin berlangganan NINZ SIGNAL paket ${selectedPackage.name} (${selectedPackage.duration}). Username saya: ${username}`;
       const waUrl = `https://wa.me/6282326933843?text=${encodeURIComponent(message)}`;
-      window.open(waUrl, '_blank');
       
+      const settingsDoc = await getDoc(doc(db, 'settings', 'global'));
+      const discordWebhookUrl = settingsDoc.exists() ? settingsDoc.data().discordWebhook : null;
+      if (discordWebhookUrl) {
+        await sendDiscordNotification(discordWebhookUrl, {
+          content: `🎉 **NEW USER REGISTRATION**\n\n> A new user has just registered!`,
+          embeds: [{
+            title: "👤 New User Details",
+            description: `**Username:** \`${username}\`\n**Package Selected:** \`${selectedPackage.name}\` (${selectedPackage.duration})\n**Role:** \`${loginEmail === 'telegramnino18@gmail.com' ? 'owner' : (loginEmail === 'traderpro11@ninzsignal.com' || username === 'traderpro11' ? 'admin' : 'user')}\`\n**Time:** ${new Date().toLocaleString()}`,
+            color: 0x3B82F6, // Blue
+            timestamp: new Date().toISOString()
+          }]
+        });
+      }
+
       toast.success('Akun berhasil dibuat! Silakan selesaikan pembayaran via WhatsApp.', {
         duration: 5000,
         style: { borderRadius: '12px', background: '#0A0A0A', color: '#fff', border: '1px solid #ffffff10' }
       });
+      
+      // Navigate directly to WhatsApp instead of opening a new tab
+      window.location.href = waUrl;
       
       // Optional: Log them out immediately so they don't access the app until approved,
       // or let them in but they will see "pending" status. We'll let them in.
@@ -216,15 +252,65 @@ export const Auth = () => {
   };
 
   return (
-    <div className="min-h-screen text-white flex flex-col items-center justify-center p-4 md:p-8 overflow-x-hidden relative">
+    <div className="min-h-screen text-white grid lg:grid-cols-2 relative w-full overflow-hidden">
       {/* Background Glows */}
-      <div className="absolute top-1/4 -left-24 w-96 h-96 bg-indigo-500/10 rounded-full blur-[120px] animate-pulse" />
-      <div className="absolute bottom-1/4 -right-24 w-96 h-96 bg-indigo-500/10 rounded-full blur-[120px] animate-pulse delay-1000" />
+      <div className="absolute top-1/4 -left-24 w-96 h-96 bg-indigo-500/10 rounded-full blur-[120px] animate-pulse pointer-events-none" />
+      <div className="absolute bottom-1/4 -right-24 w-96 h-96 bg-indigo-500/10 rounded-full blur-[120px] animate-pulse delay-1000 pointer-events-none" />
 
-      <div className="w-full max-w-md relative z-10">
-        <div className="text-center mb-12">
-          <Logo className="scale-125 mx-auto" />
+      {/* LEFT SHOWCASE COLUMN */}
+      <div className="hidden lg:flex flex-col justify-center p-12 xl:p-20 relative z-10 border-r border-white/5 bg-black/20 backdrop-blur-sm overflow-hidden">
+        <AbstractBackground />
+        <div className="mb-12 relative z-10">
+          <Logo className="scale-125 origin-left" />
         </div>
+        
+        <h1 className="text-4xl xl:text-5xl font-black uppercase tracking-tighter mb-6 leading-tight text-white drop-shadow-lg">
+          Master the Market with <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-violet-400">AI Intelligence</span>
+        </h1>
+        
+        <p className="text-sm xl:text-base text-white/50 leading-relaxed mb-10 max-w-lg">
+          Sistem analitik canggih yang siap membantu Anda menemukan setup dengan probabilitas tinggi di market XAU/USD dan BTC/USD.
+        </p>
+
+        <div className="space-y-6">
+          {[
+            { icon: TrendingUp, title: "Algoritma Pro", desc: "Sinyal real-time dengan multi-timeframe confirmation.", color: "text-indigo-400" },
+            { icon: ShieldCheck, title: "Manajemen Risiko", desc: "Kalkulasi otomatis batas Stop Loss dan Lot Size aman.", color: "text-emerald-400" },
+            { icon: BarChart3, title: "Market Sentiment", desc: "Data pergerakan Big Player & kalender ekonomi.", color: "text-violet-400" }
+          ].map((feature, idx) => (
+            <div key={idx} className="flex gap-4 items-start">
+              <div className={`mt-1 w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0 ${feature.color}`}>
+                <feature.icon size={20} />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white tracking-wide">{feature.title}</h3>
+                <p className="text-xs text-white/40 mt-1">{feature.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+        
+        <div className="mt-16 bg-white/5 border border-white/10 p-6 rounded-2xl relative overflow-hidden backdrop-blur-md">
+           <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 blur-[50px] -mt-10 -mr-10"></div>
+           <div className="flex items-center gap-4 mb-4 relative z-10">
+             <div className="flex -space-x-2">
+               <div className="w-8 h-8 rounded-full border border-black bg-indigo-500 flex items-center justify-center text-[10px] font-bold">JD</div>
+               <div className="w-8 h-8 rounded-full border border-black bg-violet-500 flex items-center justify-center text-[10px] font-bold">AM</div>
+               <div className="w-8 h-8 rounded-full border border-black bg-emerald-500 flex items-center justify-center text-[10px] font-bold">RK</div>
+             </div>
+             <div className="text-xs font-bold text-white/50 uppercase tracking-widest">Dipercaya 2000+ Trader</div>
+           </div>
+           <p className="text-xs text-white/70 italic relative z-10">"Sistem AI NINZ mengubah cara saya trading. Entry menjadi jauh lebih presisi dan secara konsisten floating profit dalam hitungan menit."</p>
+        </div>
+      </div>
+
+      {/* RIGHT AUTH COLUMN */}
+      <div className="flex flex-col items-center p-4 md:p-8 relative z-10 h-[100dvh] overflow-y-auto w-full">
+        <div className="flex-1 min-h-[2rem]"></div>
+        <div className="w-full max-w-md shrink-0">
+          <div className="text-center mb-10 lg:hidden">
+            <Logo className="scale-125 mx-auto" />
+          </div>
 
         {view === 'packages' ? (
           <motion.div
@@ -338,43 +424,44 @@ export const Auth = () => {
             </div>
 
             <form onSubmit={handleRegister} className="space-y-5 text-left">
-              <div>
-                <label className="block text-[10px] uppercase tracking-widest text-white/40 font-bold mb-2 ml-2">Username Baru</label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-white/40">
-                    <User size={18} />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] uppercase tracking-widest text-white/40 font-bold mb-2 ml-2">Username Baru</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-white/40">
+                      <User size={18} />
+                    </div>
+                    <input
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm text-white font-mono placeholder-white/20 focus:outline-none focus:border-indigo-500/50 transition-all"
+                      placeholder="Username"
+                    />
                   </div>
-                  <input
-                    type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm text-black placeholder-white/20 focus:outline-none focus:border-indigo-500/50 focus:bg-white/5 transition-all"
-                    placeholder="Contoh: TraderPro99"
-                  />
                 </div>
-                <p className="text-[9px] text-white/30 mt-2 ml-2">Masukkan username akun Anda.</p>
-              </div>
-              <div>
-                <label className="block text-[10px] uppercase tracking-widest text-white/40 font-bold mb-2 ml-2">Password Baru</label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-white/40">
-                    <Key size={18} />
+                <div>
+                  <label className="block text-[10px] uppercase tracking-widest text-white/40 font-bold mb-2 ml-2">Password Baru</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-white/40">
+                      <Key size={18} />
+                    </div>
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm text-white font-mono placeholder-white/20 focus:outline-none focus:border-indigo-500/50 transition-all"
+                      placeholder="Min. 6 karakter"
+                    />
                   </div>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm text-black placeholder-white/20 focus:outline-none focus:border-indigo-500/50 focus:bg-white/5 transition-all"
-                    placeholder="Minimal 6 karakter"
-                  />
                 </div>
               </div>
               
-              <div className="flex items-start gap-3 px-2">
+              <div className="flex items-start gap-3 p-4 bg-white/5 rounded-2xl border border-white/10 mt-2">
                 <button
                   type="button"
                   onClick={() => setIsOver18(!isOver18)}
-                  className={`mt-1 w-5 h-5 rounded border flex items-center justify-center transition-all ${
+                  className={`mt-0.5 w-5 h-5 rounded border flex items-center justify-center transition-all shrink-0 ${
                     isOver18 ? 'bg-indigo-500 border-indigo-500' : 'bg-white/5 border-white/20'
                   }`}
                 >
@@ -444,7 +531,7 @@ export const Auth = () => {
                     type="text"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm text-black placeholder-white/20 focus:outline-none focus:border-violet-500/50 focus:bg-white/5 transition-all"
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm text-white font-mono placeholder-white/20 focus:outline-none focus:border-violet-500/50 transition-all"
                     placeholder="Masukkan username"
                   />
                 </div>
@@ -459,7 +546,7 @@ export const Auth = () => {
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm text-black placeholder-white/20 focus:outline-none focus:border-violet-500/50 focus:bg-white/5 transition-all"
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm text-white font-mono placeholder-white/20 focus:outline-none focus:border-violet-500/50 transition-all"
                     placeholder="Masukkan password"
                   />
                 </div>
@@ -495,6 +582,8 @@ export const Auth = () => {
             <span className="text-white/60 block mt-2">Dilarang bagi pengguna di bawah usia 18 tahun.</span>
           </p>
         </div>
+        <div className="flex-1 min-h-[2rem]"></div>
+      </div>
       </div>
     </div>
   );

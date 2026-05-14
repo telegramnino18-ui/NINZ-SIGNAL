@@ -54,23 +54,11 @@ interface MarketData {
   identifiedMethods?: string[];
   confirmations?: string[];
   setupType?: string;
-  sentiment: {
-    xau: { label: string; value: number; change: string };
-    btc: { label: string; value: number; change: string };
-  };
-  levels: {
-    xau: { resistance: string; support: string; pivot: string; entry: string; sl: string; tp: string; tp2: string; tp3: string };
-    btc: { resistance: string; support: string; pivot: string; entry: string; sl: string; tp: string; tp2: string; tp3: string };
-  };
+  sentiment: { label: string; value: number; change: string };
+  levels: { resistance: string; support: string; pivot: string; entry: string; sl: string; tp: string; tp2: string; tp3: string };
   swingLevels: {
-    xau: { 
-      buy: { entry: string; sl: string; tp: string; tp2: string; tp3: string };
-      sell: { entry: string; sl: string; tp: string; tp2: string; tp3: string };
-    };
-    btc: { 
-      buy: { entry: string; sl: string; tp: string; tp2: string; tp3: string };
-      sell: { entry: string; sl: string; tp: string; tp2: string; tp3: string };
-    };
+    buy: { entry: string; sl: string; tp: string; tp2: string; tp3: string };
+    sell: { entry: string; sl: string; tp: string; tp2: string; tp3: string };
   };
   indicators: {
     rsi: string;
@@ -100,7 +88,11 @@ interface MarketData {
 }
 
 type Timeframe = '1M' | '5M' | '15M' | '30M' | '1H' | '4H' | '1D';
-type Pair = 'XAU/USD' | 'BTC/USD';
+const ALL_PAIRS = [
+  'XAU/USD', 'BTC/USD'
+] as const;
+
+type Pair = typeof ALL_PAIRS[number];
 
 interface TapeEntry {
   id: string;
@@ -116,10 +108,16 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
   const [data, setData] = useState<MarketData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Risk Management State
+  const [calcBalance, setCalcBalance] = useState<number>(1000);
+  const [calcRisk, setCalcRisk] = useState<number>(2);
+
   const [selectedPair, setSelectedPair] = useState<Pair>(() => {
     return (localStorage.getItem('ninz_preferred_pair') as Pair) || 'XAU/USD';
   });
   const [showPairDropdown, setShowPairDropdown] = useState(false);
+  const [showTradeTypeDropdown, setShowTradeTypeDropdown] = useState(false);
   const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>(() => {
     return (localStorage.getItem('ninz_preferred_timeframe') as Timeframe) || '5M';
   });
@@ -152,6 +150,7 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
   const [swingTakeProfit3, setSwingTakeProfit3] = useState('');
   const [useCustomSwing, setUseCustomSwing] = useState(false);
   const [isFallback, setIsFallback] = useState(false);
+  const [tradeType, setTradeType] = useState<string>('AUTO');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [nextRefreshIn, setNextRefreshIn] = useState(300); // Speed up to 5 minutes
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -163,10 +162,12 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
     }, 1000);
     return () => clearInterval(timer);
   }, []);
-  const [isFirstFetch, setIsFirstFetch] = useState<Record<Pair, boolean>>({
-    'XAU/USD': true,
-    'BTC/USD': true
-  });
+  const initialFirstFetch = ALL_PAIRS.reduce((acc, pair) => {
+    acc[pair] = true;
+    return acc;
+  }, {} as Record<Pair, boolean>);
+  
+  const [isFirstFetch, setIsFirstFetch] = useState<Record<Pair, boolean>>(initialFirstFetch);
 
   const [isLogging, setIsLogging] = useState(false);
   const [globalSettings, setGlobalSettings] = useState<any>({ discordWebhook: '' });
@@ -176,7 +177,6 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
   const [logResult, setLogResult] = useState('');
   const [logAction, setLogAction] = useState<'BUY' | 'SELL'>('BUY');
   const [swingAction, setSwingAction] = useState<'BUY' | 'SELL'>('BUY');
-  const [signalTab, setSignalTab] = useState<'XAU' | 'BTC'>('XAU');
 
   const handleLogTrade = async () => {
     if (!logEntry || !logSL || !logTP || !logResult) {
@@ -238,19 +238,32 @@ ${formatTF(mtfData.H1, 'Timeframe H1')}
 ${formatTF(mtfData.M15, 'Timeframe M15')}
 `;
 
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+      const apiKey = (import.meta as any).env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
       if (!apiKey) {
         throw new Error('API Key Gemini tidak ditemukan. Harap tambahkan VITE_GEMINI_API_KEY atau GEMINI_API_KEY di Environment Variables.');
       }
 
       const ai = new GoogleGenAI({ apiKey });
+      
+      let tradeTypeDesc = "";
+      if (tradeType === 'SCALPING') {
+        tradeTypeDesc = "GAYA TRADING: SCALPING. Ambil profit cepat kaya biasanya. SL normal scalping (20-30 pips) dan TP ideal untuk scalping (30-50 pips).";
+      } else if (tradeType === 'SWING') {
+        tradeTypeDesc = "GAYA TRADING: SWING TRADING. Tahan lama untuk tren besar. Wajib SL Jauh/Lebar (80-200 pips) dan TP Sangat Jauh (ratusan pips). JANGAN kasih TP/SL sempit!";
+      } else if (tradeType === 'FM') {
+        tradeTypeDesc = "GAYA TRADING: FM (FULL MARGIN). Zero Drawdown & Sniper Entry! SL HARUS SANGAT KETAT / CEPAT (5-15 pips) dan TP HARUS SANGAT CEPAT / DEKAT (10-20 pips) karena lot gajah. Wajib presisi ketat.";
+      } else {
+        tradeTypeDesc = "GAYA TRADING: REGULAR/AUTO. Sesuaikan proporsi SL dan TP dengan trend yang ada.";
+      }
+
       const analysisPromise = ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3-flash-preview",
         contents: `Anda adalah QUANT/ALGO TRADER PROFESIONAL (Elit Institusi Top Tier). Anda HANYA memberikan sinyal jika setup memiliki probabilitas keberhasilan sangat tinggi (di atas 90%) berdasarkan Smart Money Concepts (SMC) dan konfluensi indikator.
+
+${tradeTypeDesc}
 
 Konteks Market: Pair Fokus ${selectedPair} pada timeframe ${selectedTimeframe}.
 Harga ${selectedPair} saat ini: ${livePricesRef.current[selectedPair].price}.
-Harga XAU/USD: ${livePricesRef.current['XAU/USD']?.price}. Harga BTC/USD: ${livePricesRef.current['BTC/USD']?.price}.
 
 ${mtfContext}
 
@@ -265,9 +278,9 @@ Hasilkan output JSON yang sangat rinci mencakup:
 - setupType: "BUY", "SELL", atau "NO TRADE" secara spesifik untuk pair ${selectedPair}.
 - analysis: Analisis naratif terperinci mengenai SMC, FVG, dan sapuan likuiditas, serta justifikasi kuat mengapa tingkat kesuksesannya >90%.
 - confirmations: Daftar detail dari sinyal SMC dan konfluensi indikator yang memvalidasi keputusan.
-- sentiment: Angka skor sentimen (0-100) beserta string label untuk XAU dan BTC.
-- levels: Hitung titik harga presisi absolut (Resistance, Support, Pivot) serta strategi trading langsung (Entry, SL, TP, TP2, TP3) untuk masing-masing XAU dan BTC. Pastikan SL, TP1, TP2, TP3 dikalkulasi secara rasional sesuai kaidah ketat SMC.
-- swingLevels: Hitung skenario makro untuk swing (Buy Setup dan Sell Setup terpisah) dengan set harga Entry, SL, TP, TP2, TP3 untuk XAU dan BTC.
+- sentiment: Angka skor sentimen (0-100) beserta string label.
+- levels: Hitung titik harga presisi absolut (Resistance, Support, Pivot) serta strategi trading langsung (Entry, SL, TP, TP2, TP3) yang WAJIB MEMATUHI JARAK/PIPS sesuai instruksi GAYA TRADING (${tradeType}) di atas.
+- swingLevels: Skenario tambahan untuk timeframe lebih besar (opsional, ikuti instruksi GAYA TRADING jika tidak relevan biarkan kosong).
 `,
         config: {
           responseMimeType: "application/json",
@@ -280,106 +293,45 @@ Hasilkan output JSON yang sangat rinci mencakup:
               sentiment: {
                 type: Type.OBJECT,
                 properties: {
-                  xau: {
-                    type: Type.OBJECT,
-                    properties: {
-                      label: { type: Type.STRING },
-                      value: { type: Type.NUMBER },
-                      change: { type: Type.STRING }
-                    }
-                  },
-                  btc: {
-                    type: Type.OBJECT,
-                    properties: {
-                      label: { type: Type.STRING },
-                      value: { type: Type.NUMBER },
-                      change: { type: Type.STRING }
-                    }
-                  }
+                  label: { type: Type.STRING },
+                  value: { type: Type.NUMBER },
+                  change: { type: Type.STRING }
                 }
               },
               levels: {
                 type: Type.OBJECT,
                 properties: {
-                  xau: {
-                    type: Type.OBJECT,
-                    properties: {
-                      resistance: { type: Type.STRING },
-                      support: { type: Type.STRING },
-                      pivot: { type: Type.STRING },
-                      entry: { type: Type.STRING },
-                      sl: { type: Type.STRING },
-                      tp: { type: Type.STRING },
-                      tp2: { type: Type.STRING },
-                      tp3: { type: Type.STRING }
-                    }
-                  },
-                  btc: {
-                    type: Type.OBJECT,
-                    properties: {
-                      resistance: { type: Type.STRING },
-                      support: { type: Type.STRING },
-                      pivot: { type: Type.STRING },
-                      entry: { type: Type.STRING },
-                      sl: { type: Type.STRING },
-                      tp: { type: Type.STRING },
-                      tp2: { type: Type.STRING },
-                      tp3: { type: Type.STRING }
-                    }
-                  }
+                  resistance: { type: Type.STRING },
+                  support: { type: Type.STRING },
+                  pivot: { type: Type.STRING },
+                  entry: { type: Type.STRING },
+                  sl: { type: Type.STRING },
+                  tp: { type: Type.STRING },
+                  tp2: { type: Type.STRING },
+                  tp3: { type: Type.STRING }
                 }
               },
               swingLevels: {
                 type: Type.OBJECT,
                 properties: {
-                  xau: {
+                  buy: {
                     type: Type.OBJECT,
                     properties: {
-                      buy: {
-                        type: Type.OBJECT,
-                        properties: {
-                          entry: { type: Type.STRING },
-                          sl: { type: Type.STRING },
-                          tp: { type: Type.STRING },
-                          tp2: { type: Type.STRING },
-                          tp3: { type: Type.STRING }
-                        }
-                      },
-                      sell: {
-                        type: Type.OBJECT,
-                        properties: {
-                          entry: { type: Type.STRING },
-                          sl: { type: Type.STRING },
-                          tp: { type: Type.STRING },
-                          tp2: { type: Type.STRING },
-                          tp3: { type: Type.STRING }
-                        }
-                      }
+                      entry: { type: Type.STRING },
+                      sl: { type: Type.STRING },
+                      tp: { type: Type.STRING },
+                      tp2: { type: Type.STRING },
+                      tp3: { type: Type.STRING }
                     }
                   },
-                  btc: {
+                  sell: {
                     type: Type.OBJECT,
                     properties: {
-                      buy: {
-                        type: Type.OBJECT,
-                        properties: {
-                          entry: { type: Type.STRING },
-                          sl: { type: Type.STRING },
-                          tp: { type: Type.STRING },
-                          tp2: { type: Type.STRING },
-                          tp3: { type: Type.STRING }
-                        }
-                      },
-                      sell: {
-                        type: Type.OBJECT,
-                        properties: {
-                          entry: { type: Type.STRING },
-                          sl: { type: Type.STRING },
-                          tp: { type: Type.STRING },
-                          tp2: { type: Type.STRING },
-                          tp3: { type: Type.STRING }
-                        }
-                      }
+                      entry: { type: Type.STRING },
+                      sl: { type: Type.STRING },
+                      tp: { type: Type.STRING },
+                      tp2: { type: Type.STRING },
+                      tp3: { type: Type.STRING }
                     }
                   }
                 }
@@ -477,7 +429,7 @@ Hasilkan output JSON yang sangat rinci mencakup:
 
       // Send Discord Notification for AI Signal
       if (globalSettings.discordWebhook) {
-        const pairLevels = selectedPair === 'XAU/USD' ? normalizedData.levels.xau : normalizedData.levels.btc;
+        const pairLevels = normalizedData.levels;
         const discordMsg = formatSignalMessage({
           pair: selectedPair,
           action: parseFloat(String(pairLevels.entry).replace(/,/g, '')) > parseFloat(String(pairLevels.sl).replace(/,/g, '')) ? 'BUY' : 'SELL',
@@ -523,16 +475,23 @@ Hasilkan output JSON yang sangat rinci mencakup:
     } finally {
       setLoading(false);
     }
-  }, [selectedPair, selectedTimeframe]);
+  }, [selectedPair, selectedTimeframe, tradeType]);
   
   // No clamping needed
   const clampXauPrice = (price: number) => price;
 
-  // Live Price State
-  const [livePrices, setLivePrices] = useState({
-    'XAU/USD': { price: 2350.50, change: '+0.45%', isUp: true, volume: 0 },
-    'BTC/USD': { price: 65000.00, change: '+1.25%', isUp: true, volume: 0 }
-  });
+  // Dynamic Initializations
+  const initialLivePrices = ALL_PAIRS.reduce((acc, pair) => {
+    acc[pair] = { 
+      price: pair.includes('BTC') ? 65000.00 : pair.includes('XAU') ? 2350.50 : pair.includes('ETH') ? 3500.00 : 1.1000, 
+      change: '+0.00%', 
+      isUp: true, 
+      volume: 0 
+    };
+    return acc;
+  }, {} as Record<Pair, { price: number; change: string; isUp: boolean; volume: number }>);
+
+  const [livePrices, setLivePrices] = useState(initialLivePrices);
   const lastTPHitTimeRef = useRef<number>(0);
 
   // Ref to track latest prices for simulation without triggering re-renders
@@ -655,18 +614,20 @@ Hasilkan output JSON yang sangat rinci mencakup:
       }
     };
 
-    // Backup BTC/USD Feed (CoinGecko via Proxy)
+    // Real-time BTC/USD Feed (Finnhub API)
     const fetchBtcPrice = async () => {
       if (btcWs.readyState === WebSocket.OPEN) return;
       try {
-        const data = await fetchWithProxy('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true');
-        if (data && data.bitcoin) {
+        const response = await fetch('https://finnhub.io/api/v1/quote?symbol=BINANCE:BTCUSDT&token=d7utp4hr01qp7l709vi0d7utp4hr01qp7l709vig');
+        const data = await response.json();
+        if (data && data.c) {
           setLivePrices(prev => ({
             ...prev,
             'BTC/USD': {
-              price: data.bitcoin.usd,
-              change: `${data.bitcoin.usd_24h_change >= 0 ? '+' : ''}${data.bitcoin.usd_24h_change.toFixed(2)}%`,
-              isUp: data.bitcoin.usd_24h_change >= 0
+              price: data.c,
+              change: `${data.dp >= 0 ? '+' : ''}${data.dp?.toFixed(2)}%`,
+              isUp: data.dp >= 0,
+              volume: prev['BTC/USD'].volume
             }
           }));
         }
@@ -674,25 +635,28 @@ Hasilkan output JSON yang sangat rinci mencakup:
           setIsFirstFetch(prev => ({ ...prev, 'BTC/USD': false }));
         }
       } catch (err) {
-        console.warn('All BTC proxies failed:', err);
+        console.warn('Finnhub BTC API failed:', err);
       }
     };
 
-    const btcInterval = setInterval(fetchBtcPrice, 60000);
+    const btcInterval = setInterval(fetchBtcPrice, 10000); // Polling 10s for Finnhub
 
-    // Real-time XAU/USD Feed (Yahoo Finance via Proxy)
+    // Real-time XAU/USD Feed (Twelve Data API)
     const fetchXauPrice = async () => {
       try {
-        // Try Binance PAXGUSDT first as it's often more reliable
-        const binanceData = await fetchWithProxy('https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT');
-        if (binanceData?.price) {
-          const price = clampXauPrice(parseFloat(binanceData.price)); 
+        const response = await fetch('https://api.twelvedata.com/quote?symbol=XAU/USD&apikey=55432dd23d884a1181c068c41a386823');
+        const data = await response.json();
+        if (data && data.close) {
+          const price = clampXauPrice(parseFloat(data.close));
+          const change = parseFloat(data.percent_change);
+
           setLivePrices(prev => ({
             ...prev,
             'XAU/USD': {
-              ...prev['XAU/USD'],
               price: price,
-              change: prev['XAU/USD'].change // Keep existing change for now
+              change: `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`,
+              isUp: change >= 0,
+              volume: prev['XAU/USD'].volume
             }
           }));
           if (isFirstFetch['XAU/USD']) {
@@ -701,57 +665,36 @@ Hasilkan output JSON yang sangat rinci mencakup:
           return;
         }
       } catch (err) {
-        console.warn('Binance PAXG fallback failed, trying Yahoo');
+        console.warn('Twelve Data XAU API failed, trying Finnhub API for alternative');
       }
 
+      // Fallback to CoinGecko if Twelve Data fails
       try {
-        const data = await fetchWithProxy('https://query1.finance.yahoo.com/v8/finance/chart/XAUUSD=X?interval=1m&range=1d');
-        if (data?.chart?.result?.[0]) {
-          const result = data.chart.result[0];
-          const price = clampXauPrice(result.meta.regularMarketPrice); 
-          const prevClose = result.meta.previousClose;
-          const change = ((price - prevClose) / prevClose) * 100;
-
+        const data = await fetchWithProxy('https://api.coingecko.com/api/v3/simple/price?ids=pax-gold&vs_currencies=usd&include_24hr_change=true');
+        if (data?.['pax-gold']) {
+          const price = data['pax-gold'].usd;
+          const change = data['pax-gold'].usd_24h_change;
           setLivePrices(prev => ({
             ...prev,
             'XAU/USD': {
               price: price,
               change: `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`,
-              isUp: change >= 0
+              isUp: change >= 0,
+              volume: prev['XAU/USD'].volume
             }
           }));
         }
-        if (isFirstFetch['XAU/USD']) {
-          setIsFirstFetch(prev => ({ ...prev, 'XAU/USD': false }));
-        }
-      } catch (err) {
-        console.warn('Yahoo Finance proxies failed, trying PAXG fallback');
-        try {
-          const data = await fetchWithProxy('https://api.coingecko.com/api/v3/simple/price?ids=pax-gold&vs_currencies=usd&include_24hr_change=true');
-          if (data?.['pax-gold']) {
-            const price = data['pax-gold'].usd;
-            const change = data['pax-gold'].usd_24h_change;
-            setLivePrices(prev => ({
-              ...prev,
-              'XAU/USD': {
-                price: price,
-                change: `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`,
-                isUp: change >= 0
-              }
-            }));
-          }
-        } catch (e) {
-          // Simulation fallback
-          setLivePrices(prev => ({
-            ...prev,
-            'XAU/USD': { ...prev['XAU/USD'], price: prev['XAU/USD'].price + (Math.random() - 0.5) * 0.05 }
-          }));
-        }
+      } catch (e) {
+        // Simulation fallback
+        setLivePrices(prev => ({
+          ...prev,
+          'XAU/USD': { ...prev['XAU/USD'], price: prev['XAU/USD'].price + (Math.random() - 0.5) * 0.05 }
+        }));
       }
     };
 
     fetchXauPrice();
-    const xauInterval = setInterval(fetchXauPrice, 10000); // Update every 10s for better real-time feel
+    const xauInterval = setInterval(fetchXauPrice, 10000); // Update every 10s using Twelve Data
 
     return () => {
       btcWs.close();
@@ -866,10 +809,11 @@ Hasilkan output JSON yang sangat rinci mencakup:
   }, [selectedPair, selectedTimeframe]);
 
   // Chart Base Price (to keep chart stable during large jumps)
-  const [chartBasePrice, setChartBasePrice] = useState<Record<Pair, number>>({
-    'XAU/USD': 2350.50,
-    'BTC/USD': 65000.00
-  });
+  const initialChartBasePrice = ALL_PAIRS.reduce((acc, pair) => {
+    acc[pair] = pair.includes('BTC') ? 65000.00 : pair.includes('XAU') ? 2350.50 : pair.includes('ETH') ? 3500.00 : 1.1000;
+    return acc;
+  }, {} as Record<Pair, number>);
+  const [chartBasePrice, setChartBasePrice] = useState<Record<Pair, number>>(initialChartBasePrice);
 
   // Update chart base price when pair changes or when we get a significantly different price for the first time
   useEffect(() => {
@@ -929,8 +873,8 @@ Hasilkan output JSON yang sangat rinci mencakup:
 
   // Helper untuk menormalisasi data (mencegah crash jika field hilang)
   const normalizeMarketData = (raw: any): MarketData => {
-    const xauPrice = livePricesRef.current['XAU/USD'].price;
-    const btcPrice = livePricesRef.current['BTC/USD'].price;
+    const isCryptoBTC = selectedPair.includes('BTC');
+    const activePrice = livePricesRef.current[selectedPair]?.price || (isCryptoBTC ? 65000.00 : 2350.50);
     
     // Sanity Check: Jika level terlalu jauh (>2%), paksa gunakan harga saat ini sebagai basis
     const isLevelValid = (val: string | number | undefined, refPrice: number) => {
@@ -948,8 +892,7 @@ Hasilkan output JSON yang sangat rinci mencakup:
       return Math.abs(num - refPrice) <= refPrice * 0.003;
     };
 
-    const rawXau = raw?.levels?.xau || {};
-    const rawBtc = raw?.levels?.btc || {};
+    const rawLevels = raw?.levels || {};
     
     // Logic: Jika data masuk akal, gunakan. Jika tidak, buat level scalping otomatis.
     const getLevel = (rawVal: any, refPrice: number, offset: number, isBtc: boolean) => {
@@ -961,112 +904,94 @@ Hasilkan output JSON yang sangat rinci mencakup:
     };
 
     // Dynamic SL offset based on timeframe
-    let xauMinRisk = 5.00; // 50 pips minimal
-    let xauSLOffset = 5.00; 
-    let btcSLOffset = 500;  
+    let minRisk = isCryptoBTC ? 500 : 5.00;
+    let slOffset = isCryptoBTC ? 500 : 5.00;
     
     if (selectedTimeframe === '15M' || selectedTimeframe === '30M') {
-      xauMinRisk = 5.00;
-      xauSLOffset = 5.00; 
-      btcSLOffset = 500;
+      minRisk = isCryptoBTC ? 500 : 5.00;
+      slOffset = isCryptoBTC ? 500 : 5.00;
     } else if (selectedTimeframe === '1H' || selectedTimeframe === '4H' || selectedTimeframe === '1D') {
-      xauMinRisk = 8.00;
-      xauSLOffset = 8.00; 
-      btcSLOffset = 800;
+      minRisk = isCryptoBTC ? 800 : 8.00;
+      slOffset = isCryptoBTC ? 800 : 8.00;
     }
 
-    const validateSL = (entryRaw: any, slRaw: any, refPrice: number, minRisk: number, defaultOffset: number) => {
+    const validateSL = (entryRaw: any, slRaw: any, refPrice: number, pMinRisk: number, defaultOffset: number) => {
       const entry = isEntryValid(entryRaw, refPrice) ? parseFloat(String(entryRaw).replace(/,/g, '')) : refPrice;
       const rawSlNum = slRaw ? parseFloat(String(slRaw).replace(/,/g, '')) : NaN;
       
       let finalSL = entry - defaultOffset; // Default buy SL
       if (!isNaN(rawSlNum) && isLevelValid(rawSlNum, refPrice)) {
         const risk = Math.abs(entry - rawSlNum);
-        if (risk >= minRisk) {
+        if (risk >= pMinRisk) {
           finalSL = rawSlNum;
         } else {
           // If too small, enforce minimum distance according to direction
-          finalSL = rawSlNum > entry ? entry + minRisk : entry - minRisk;
+          finalSL = rawSlNum > entry ? entry + pMinRisk : entry - pMinRisk;
         }
       }
       return finalSL;
     };
 
-    const xauEntry = isEntryValid(rawXau.entry, xauPrice) ? parseFloat(String(rawXau.entry).replace(/,/g, '')) : xauPrice;
-    const xauSL = validateSL(rawXau.entry, rawXau.sl, xauPrice, xauMinRisk, xauSLOffset);
-    
-    const btcEntry = isEntryValid(rawBtc.entry, btcPrice) ? parseFloat(String(rawBtc.entry).replace(/,/g, '')) : btcPrice;
-    const btcSL = validateSL(rawBtc.entry, rawBtc.sl, btcPrice, btcSLOffset, btcSLOffset);
+    const decimalPlaces = isCryptoBTC ? 0 : 2;
+    const entryPrice = isEntryValid(rawLevels.entry, activePrice) ? parseFloat(String(rawLevels.entry).replace(/,/g, '')) : activePrice;
+    const slPrice = validateSL(rawLevels.entry, rawLevels.sl, activePrice, minRisk, slOffset);
 
     const levels = {
-      xau: {
-        resistance: getLevel(rawXau.resistance, xauPrice, 0.25, false).toFixed(2),
-        support: getLevel(rawXau.support, xauPrice, -0.25, false).toFixed(2),
-        pivot: xauPrice.toFixed(2),
-        entry: xauEntry.toFixed(2),
-        sl: xauSL.toFixed(2),
-        tp: calculateRR(xauEntry, xauSL, 2, false),
-        tp2: calculateRR(xauEntry, xauSL, 3, false),
-        tp3: calculateRR(xauEntry, xauSL, 4, false)
-      },
-      btc: {
-        resistance: getLevel(rawBtc.resistance, btcPrice, 50, true).toFixed(0),
-        support: getLevel(rawBtc.support, btcPrice, -50, true).toFixed(0),
-        pivot: btcPrice.toFixed(0),
-        entry: btcEntry.toFixed(0),
-        sl: btcSL.toFixed(0),
-        tp: calculateRR(btcEntry, btcSL, 2, true),
-        tp2: calculateRR(btcEntry, btcSL, 3, true),
-        tp3: calculateRR(btcEntry, btcSL, 4, true)
-      }
+      resistance: getLevel(rawLevels.resistance, activePrice, isCryptoBTC ? 50 : 0.25, isCryptoBTC).toFixed(decimalPlaces),
+      support: getLevel(rawLevels.support, activePrice, isCryptoBTC ? -50 : -0.25, isCryptoBTC).toFixed(decimalPlaces),
+      pivot: activePrice.toFixed(decimalPlaces),
+      entry: entryPrice.toFixed(decimalPlaces),
+      sl: slPrice.toFixed(decimalPlaces),
+      tp: calculateRR(entryPrice, slPrice, 2, isCryptoBTC),
+      tp2: calculateRR(entryPrice, slPrice, 3, isCryptoBTC),
+      tp3: calculateRR(entryPrice, slPrice, 4, isCryptoBTC)
     };
 
-    const rawSwingXau = raw?.swingLevels?.xau || {};
-    const rawSwingBtc = raw?.swingLevels?.btc || {};
+    const rawSwingLevels = raw?.swingLevels || {};
 
-    const processSwing = (raw: any, currentPrice: number, isBtc: boolean) => {
+    const processSwing = (rawS: any, currentPrice: number, isBtc: boolean) => {
       // Dynamic offsets for swing/log levels
       let entryOffset = isBtc ? 50 : 2.00; // Scalping
-      let slMinRisk = isBtc ? 500 : 5.00;
-      let slOffset = isBtc ? 500 : 5.00;
+      let swingSlMinRisk = isBtc ? 500 : 5.00;
+      let swingSlOffset = isBtc ? 500 : 5.00;
       
       if (selectedTimeframe === '15M' || selectedTimeframe === '30M') {
         entryOffset = isBtc ? 100 : 4.00; // Intraday
-        slMinRisk = isBtc ? 500 : 5.00;
-        slOffset = isBtc ? 500 : 5.00;
+        swingSlMinRisk = isBtc ? 500 : 5.00;
+        swingSlOffset = isBtc ? 500 : 5.00;
       } else if (selectedTimeframe === '1H' || selectedTimeframe === '4H' || selectedTimeframe === '1D') {
         entryOffset = isBtc ? 200 : 6.00; // Swing
-        slMinRisk = isBtc ? 800 : 8.00;
-        slOffset = isBtc ? 800 : 8.00;
+        swingSlMinRisk = isBtc ? 800 : 8.00;
+        swingSlOffset = isBtc ? 800 : 8.00;
       }
 
-      const buyEntry = isLevelValid(raw.buy?.entry, currentPrice) ? parseFloat(String(raw.buy.entry).replace(/,/g, '')) : currentPrice - entryOffset;
-      const buySL = validateSL(raw.buy?.entry, raw.buy?.sl, currentPrice, slMinRisk, slOffset);
+      const buyEntry = isLevelValid(rawS.buy?.entry, currentPrice) ? parseFloat(String(rawS.buy.entry).replace(/,/g, '')) : currentPrice - entryOffset;
+      const buySL = validateSL(rawS.buy?.entry, rawS.buy?.sl, currentPrice, swingSlMinRisk, swingSlOffset);
       
-      const sellEntry = isLevelValid(raw.sell?.entry, currentPrice) ? parseFloat(String(raw.sell.entry).replace(/,/g, '')) : currentPrice + entryOffset;
+      const sellEntry = isLevelValid(rawS.sell?.entry, currentPrice) ? parseFloat(String(rawS.sell.entry).replace(/,/g, '')) : currentPrice + entryOffset;
       // For sell SL, validateSL will default to entry - offset if rawSlNum is missing. We need to handle sell direction properly.
-      let sellSL = sellEntry + slOffset;
-      const rawSellSlNum = raw.sell?.sl ? parseFloat(String(raw.sell.sl).replace(/,/g, '')) : NaN;
+      let sellSL = sellEntry + swingSlOffset;
+      const rawSellSlNum = rawS.sell?.sl ? parseFloat(String(rawS.sell.sl).replace(/,/g, '')) : NaN;
       if (!isNaN(rawSellSlNum) && isLevelValid(rawSellSlNum, currentPrice)) {
         const risk = Math.abs(rawSellSlNum - sellEntry);
-        if (risk >= slMinRisk) {
+        if (risk >= swingSlMinRisk) {
           sellSL = rawSellSlNum;
         } else {
-          sellSL = rawSellSlNum < sellEntry ? sellEntry + slMinRisk : sellEntry + slMinRisk;
+          sellSL = rawSellSlNum < sellEntry ? sellEntry + swingSlMinRisk : sellEntry + swingSlMinRisk;
         }
       }
 
       return {
         buy: {
-          entry: buyEntry.toFixed(isBtc ? 0 : 2),
-          sl: buySL.toFixed(isBtc ? 0 : 2),
+          entry: buyEntry.toFixed(decimalPlaces),
+          sl: buySL.toFixed(decimalPlaces),
           tp: calculateRR(buyEntry, buySL, 3, isBtc),
           tp2: calculateRR(buyEntry, buySL, 4, isBtc),
           tp3: calculateRR(buyEntry, buySL, 5, isBtc)
         },
         sell: {
-          entry: sellEntry.toFixed(isBtc ? 0 : 2),
-          sl: sellSL.toFixed(isBtc ? 0 : 2),
+          entry: sellEntry.toFixed(decimalPlaces),
+          sl: sellSL.toFixed(decimalPlaces),
           tp: calculateRR(sellEntry, sellSL, 3, isBtc),
           tp2: calculateRR(sellEntry, sellSL, 4, isBtc),
           tp3: calculateRR(sellEntry, sellSL, 5, isBtc)
@@ -1074,27 +999,17 @@ Hasilkan output JSON yang sangat rinci mencakup:
       };
     };
 
-    const swingLevels = {
-      xau: processSwing(rawSwingXau, xauPrice, false),
-      btc: processSwing(rawSwingBtc, btcPrice, true)
-    };
+    const swingLevels = processSwing(rawSwingLevels, activePrice, isCryptoBTC);
 
     return {
       analysis: raw.analysis || 'Analisis pasar tidak tersedia saat ini.',
       setupType: raw.setupType || 'Standard Setup',
       confirmations: Array.isArray(raw.confirmations) ? raw.confirmations : ['Konfirmasi Struktur Harga', 'Analisis Volume', 'Indikator Teknikal'],
       identifiedMethods: Array.isArray(raw.identifiedMethods) ? raw.identifiedMethods : [],
-      sentiment: {
-        xau: { 
-          label: raw.sentiment?.xau?.label || 'NEUTRAL', 
-          value: typeof raw.sentiment?.xau?.value === 'number' ? raw.sentiment.xau.value : 50, 
-          change: raw.sentiment?.xau?.change || '0%' 
-        },
-        btc: { 
-          label: raw.sentiment?.btc?.label || 'NEUTRAL', 
-          value: typeof raw.sentiment?.btc?.value === 'number' ? raw.sentiment.btc.value : 50, 
-          change: raw.sentiment?.btc?.change || '0%' 
-        }
+      sentiment: { 
+        label: raw.sentiment?.label || 'NEUTRAL', 
+        value: typeof raw.sentiment?.value === 'number' ? raw.sentiment.value : 50, 
+        change: raw.sentiment?.change || '0%' 
       },
       levels: levels,
       swingLevels: swingLevels,
@@ -1137,29 +1052,26 @@ Hasilkan output JSON yang sangat rinci mencakup:
   // Fungsi untuk menghasilkan data analisis sistem
     const generateSystemFallback = () => {
       setIsFallback(true);
-      const xauPrice = livePricesRef.current['XAU/USD']?.price || 2350.50;
-      const btcPrice = livePricesRef.current['BTC/USD']?.price || 65000.00;
+      const isCryptoBTC = selectedPair.includes('BTC');
+      const activePrice = livePricesRef.current[selectedPair]?.price || (isCryptoBTC ? 65000.00 : 2350.50);
+      const decimalPlaces = isCryptoBTC ? 0 : 2;
       
       // Simulasi perhitungan teknikal sederhana
       const rsi = calculateLocalRSI(chartData.map(d => d.price));
       const volatility = (Math.random() * 2 + 0.5).toFixed(2) + '%';
       
       // Logika S/R: Berikan spread yang lebih lebar agar tidak menumpuk (RR lebih akurat)
-      const xauResistance = xauPrice + 5.00 + (Math.random() * 0.5);
-      const xauSupport = xauPrice - 5.00 - (Math.random() * 0.5);
-      const btcResistance = btcPrice + 600 + (Math.random() * 100);
-      const btcSupport = btcPrice - 600 - (Math.random() * 100);
+      const activeResistance = activePrice + (isCryptoBTC ? 600 : 5.00) + (Math.random() * (isCryptoBTC ? 100 : 0.5));
+      const activeSupport = activePrice - (isCryptoBTC ? 600 : 5.00) - (Math.random() * (isCryptoBTC ? 100 : 0.5));
 
-      const isXauAtResistance = rsi > 60;
-      const isXauAtSupport = rsi < 40;
-      const isBtcAtResistance = btcPrice > (chartData[0]?.price || 0);
-      const isBtcAtSupport = btcPrice < (chartData[0]?.price || 0);
+      const isAtResistance = isCryptoBTC ? (activePrice > (chartData[0]?.price || 0)) : (rsi > 60);
+      const isAtSupport = isCryptoBTC ? (activePrice < (chartData[0]?.price || 0)) : (rsi < 40);
 
-      let xauSLDist = 5.00; // 50 pips default
-      if (selectedTimeframe === '1H' || selectedTimeframe === '4H' || selectedTimeframe === '1D') xauSLDist = 8.00;
+      let baseSLDist = isCryptoBTC ? 300 : 5.00;
+      if (!isCryptoBTC && (selectedTimeframe === '1H' || selectedTimeframe === '4H' || selectedTimeframe === '1D')) baseSLDist = 8.00;
 
       const rawFallback = {
-        analysis: `### ALGORITHM ANALYSIS (SYSTEM FALLBACK)\n\n**Sistem Algoritma Cerdas** telah mengidentifikasi lebih dari 30 metode analisa teknikal untuk memberikan perspektif jernih.\n\n**XAU/USD Analysis:**\nHarga saat ini berada di ${xauPrice.toFixed(2)}. ${isXauAtResistance ? 'Harga mendekati RESISTANCE, sinyal SELL disarankan.' : isXauAtSupport ? 'Harga mendekati SUPPORT, sinyal BUY disarankan.' : 'Harga berada di area netral.'} Berdasarkan indikator teknikal sistem, pasar menunjukkan kondisi ${rsi > 70 ? 'OVERBOUGHT' : rsi < 30 ? 'OVERSOLD' : 'NETRAL'}.\n\n**BTC/USD Analysis:**\nHarga BTC di ${btcPrice.toLocaleString()} menunjukkan volatilitas ${volatility}. ${isBtcAtResistance ? 'Harga mendekati RESISTANCE, sinyal SELL disarankan.' : isBtcAtSupport ? 'Harga mendekati SUPPORT, sinyal BUY disarankan.' : 'Harga berada di area netral.'} Tren jangka pendek terlihat ${btcPrice > (chartData[0]?.price || 0) ? 'BULLISH' : 'BEARISH'}.`,
+        analysis: `### ALGORITHM ANALYSIS (SYSTEM FALLBACK)\n\n**Sistem Algoritma Cerdas** telah mengidentifikasi lebih dari 30 metode analisa teknikal untuk memberikan perspektif jernih.\n\n**${selectedPair} Analysis:**\nHarga saat ini berada di ${activePrice.toFixed(decimalPlaces)}. ${isAtResistance ? 'Harga mendekati RESISTANCE, sinyal SELL disarankan.' : isAtSupport ? 'Harga mendekati SUPPORT, sinyal BUY disarankan.' : 'Harga berada di area netral.'} Berdasarkan tren terbaru, volatilitas tercatat pada ${volatility} dan indikator menunjukkan opsi analisis lebih lanjut.`,
       identifiedMethods: [
         "RSI (Relative Strength Index)",
         "MACD (Moving Average Convergence Divergence)",
@@ -1173,64 +1085,35 @@ Hasilkan output JSON yang sangat rinci mencakup:
         "Volatility Index (ATR)"
       ],
         sentiment: {
-          xau: { label: isXauAtResistance ? 'BEARISH' : isXauAtSupport ? 'BULLISH' : (rsi > 50 ? 'BULLISH' : 'BEARISH'), value: rsi, change: livePricesRef.current['XAU/USD']?.change || '0%' },
-          btc: { label: isBtcAtResistance ? 'BEARISH' : isBtcAtSupport ? 'BULLISH' : (btcPrice > (chartData[0]?.price || 0) ? 'BULLISH' : 'BEARISH'), value: 65, change: livePricesRef.current['BTC/USD']?.change || '0%' }
+          label: isAtResistance ? 'BEARISH' : isAtSupport ? 'BULLISH' : (rsi > 50 ? 'BULLISH' : 'BEARISH'), 
+          value: rsi, 
+          change: livePricesRef.current[selectedPair]?.change || '0%' 
         },
         levels: {
-          xau: { 
-            resistance: xauResistance.toFixed(2), 
-            support: xauSupport.toFixed(2), 
-            pivot: xauPrice.toFixed(2), 
-            entry: xauPrice.toFixed(2), 
-            sl: (isXauAtResistance ? xauPrice + xauSLDist : xauPrice - xauSLDist).toFixed(2), 
-            tp: calculateRR(xauPrice, (isXauAtResistance ? xauPrice + xauSLDist : xauPrice - xauSLDist), 2, false),
-            tp2: calculateRR(xauPrice, (isXauAtResistance ? xauPrice + xauSLDist : xauPrice - xauSLDist), 3, false),
-            tp3: calculateRR(xauPrice, (isXauAtResistance ? xauPrice + xauSLDist : xauPrice - xauSLDist), 4, false)
-          },
-          btc: { 
-            resistance: btcResistance.toFixed(0), 
-            support: btcSupport.toFixed(0), 
-            pivot: btcPrice.toFixed(0), 
-            entry: btcPrice.toFixed(0), 
-            sl: (isBtcAtResistance ? btcPrice + 300 : btcPrice - 300).toFixed(0), 
-            tp: calculateRR(btcPrice, (isBtcAtResistance ? btcPrice + 300 : btcPrice - 300), 2, true),
-            tp2: calculateRR(btcPrice, (isBtcAtResistance ? btcPrice + 300 : btcPrice - 300), 3, true),
-            tp3: calculateRR(btcPrice, (isBtcAtResistance ? btcPrice + 300 : btcPrice - 300), 4, true)
-          }
+            resistance: activeResistance.toFixed(decimalPlaces), 
+            support: activeSupport.toFixed(decimalPlaces), 
+            pivot: activePrice.toFixed(decimalPlaces), 
+            entry: activePrice.toFixed(decimalPlaces), 
+            sl: (isAtResistance ? activePrice + baseSLDist : activePrice - baseSLDist).toFixed(decimalPlaces), 
+            tp: calculateRR(activePrice, (isAtResistance ? activePrice + baseSLDist : activePrice - baseSLDist), 2, isCryptoBTC),
+            tp2: calculateRR(activePrice, (isAtResistance ? activePrice + baseSLDist : activePrice - baseSLDist), 3, isCryptoBTC),
+            tp3: calculateRR(activePrice, (isAtResistance ? activePrice + baseSLDist : activePrice - baseSLDist), 4, isCryptoBTC)
         },
         swingLevels: {
-          xau: { 
             buy: {
-              entry: (xauPrice - 5.00 - (Math.random() * 2)).toFixed(2),
-              sl: (xauPrice - 15.00).toFixed(2),
-              tp: calculateRR(xauPrice - 5.00 - (Math.random() * 2), xauPrice - 15.00, 3, false),
-              tp2: calculateRR(xauPrice - 5.00 - (Math.random() * 2), xauPrice - 15.00, 4, false),
-              tp3: calculateRR(xauPrice - 5.00 - (Math.random() * 2), xauPrice - 15.00, 5, false)
+              entry: (activePrice - (isCryptoBTC ? 1500 : 5.00) - (Math.random() * (isCryptoBTC ? 500 : 2))).toFixed(decimalPlaces),
+              sl: (activePrice - (isCryptoBTC ? 3000 : 15.00)).toFixed(decimalPlaces),
+              tp: calculateRR(activePrice - (isCryptoBTC ? 1500 : 5.00) - (Math.random() * (isCryptoBTC ? 500 : 2)), activePrice - (isCryptoBTC ? 3000 : 15.00), 3, isCryptoBTC),
+              tp2: calculateRR(activePrice - (isCryptoBTC ? 1500 : 5.00) - (Math.random() * (isCryptoBTC ? 500 : 2)), activePrice - (isCryptoBTC ? 3000 : 15.00), 4, isCryptoBTC),
+              tp3: calculateRR(activePrice - (isCryptoBTC ? 1500 : 5.00) - (Math.random() * (isCryptoBTC ? 500 : 2)), activePrice - (isCryptoBTC ? 3000 : 15.00), 5, isCryptoBTC)
             },
             sell: {
-              entry: (xauPrice + 5.00 + (Math.random() * 2)).toFixed(2),
-              sl: (xauPrice + 15.00).toFixed(2),
-              tp: calculateRR(xauPrice + 5.00 + (Math.random() * 2), xauPrice + 15.00, 3, false),
-              tp2: calculateRR(xauPrice + 5.00 + (Math.random() * 2), xauPrice + 15.00, 4, false),
-              tp3: calculateRR(xauPrice + 5.00 + (Math.random() * 2), xauPrice + 15.00, 5, false)
+              entry: (activePrice + (isCryptoBTC ? 1500 : 5.00) + (Math.random() * (isCryptoBTC ? 500 : 2))).toFixed(decimalPlaces),
+              sl: (activePrice + (isCryptoBTC ? 3000 : 15.00)).toFixed(decimalPlaces),
+              tp: calculateRR(activePrice + (isCryptoBTC ? 1500 : 5.00) + (Math.random() * (isCryptoBTC ? 500 : 2)), activePrice + (isCryptoBTC ? 3000 : 15.00), 3, isCryptoBTC),
+              tp2: calculateRR(activePrice + (isCryptoBTC ? 1500 : 5.00) + (Math.random() * (isCryptoBTC ? 500 : 2)), activePrice + (isCryptoBTC ? 3000 : 15.00), 4, isCryptoBTC),
+              tp3: calculateRR(activePrice + (isCryptoBTC ? 1500 : 5.00) + (Math.random() * (isCryptoBTC ? 500 : 2)), activePrice + (isCryptoBTC ? 3000 : 15.00), 5, isCryptoBTC)
             }
-          },
-          btc: { 
-            buy: {
-              entry: (btcPrice - 1500 - (Math.random() * 500)).toFixed(0),
-              sl: (btcPrice - 3000).toFixed(0),
-              tp: calculateRR(btcPrice - 1500 - (Math.random() * 500), btcPrice - 3000, 3, true),
-              tp2: calculateRR(btcPrice - 1500 - (Math.random() * 500), btcPrice - 3000, 4, true),
-              tp3: calculateRR(btcPrice - 1500 - (Math.random() * 500), btcPrice - 3000, 5, true)
-            },
-            sell: {
-              entry: (btcPrice + 1500 + (Math.random() * 500)).toFixed(0),
-              sl: (btcPrice + 3000).toFixed(0),
-              tp: calculateRR(btcPrice + 1500 + (Math.random() * 500), btcPrice + 3000, 3, true),
-              tp2: calculateRR(btcPrice + 1500 + (Math.random() * 500), btcPrice + 3000, 4, true),
-              tp3: calculateRR(btcPrice + 1500 + (Math.random() * 500), btcPrice + 3000, 5, true)
-            }
-          }
         },
       indicators: {
         rsi: rsi.toString(),
@@ -1248,8 +1131,8 @@ Hasilkan output JSON yang sangat rinci mencakup:
         }
       },
       predictions: {
-        h1: { direction: rsi > 50 ? 'UP' : 'DOWN', confidence: 60, target: (xauPrice * (rsi > 50 ? 1.005 : 0.995)).toFixed(2) },
-        h4: { direction: 'SIDEWAYS', confidence: 45, target: xauPrice.toFixed(2) }
+        h1: { direction: rsi > 50 ? 'UP' : 'DOWN', confidence: 60, target: (activePrice * (rsi > 50 ? 1.005 : 0.995)).toFixed(decimalPlaces) },
+        h4: { direction: 'SIDEWAYS', confidence: 45, target: activePrice.toFixed(decimalPlaces) }
       },
       newsSentiment: {
         summary: "Analisis teknikal real-time berdasarkan Ninz AI dan data historis pasar.",
@@ -1286,8 +1169,7 @@ Generated: ${new Date().toLocaleString()}
 ------------------------------------------
 
 MARKET SENTIMENT:
-XAU/USD: ${data.sentiment.xau.label} (${data.sentiment.xau.value}%)
-BTC/USD: ${data.sentiment.btc.label} (${data.sentiment.btc.value}%)
+${selectedPair}: ${data.sentiment.label} (${data.sentiment.value}%)
 
 TECHNICAL INDICATORS:
 RSI (14): ${data.indicators.rsi}
@@ -1301,8 +1183,7 @@ H1: ${data.predictions.h1.direction} (Confidence: ${data.predictions.h1.confiden
 H4: ${data.predictions.h4.direction} (Confidence: ${data.predictions.h4.confidence}%, Target: ${data.predictions.h4.target})
 
 TRADING LEVELS (SCALP):
-XAU/USD: Entry ${data.levels.xau.entry}, SL ${data.levels.xau.sl}, TP ${data.levels.xau.tp}
-BTC/USD: Entry ${data.levels.btc.entry}, SL ${data.levels.btc.sl}, TP ${data.levels.btc.tp}
+${selectedPair}: Entry ${data.levels.entry}, SL ${data.levels.sl}, TP ${data.levels.tp}
 
 NEWS SUMMARY:
 ${data.newsSentiment.summary}
@@ -1382,7 +1263,7 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
         const currentPrice = livePrices[pair]?.price;
         if (!currentPrice || currentPrice <= 0) return false;
 
-        const levels = pair === 'XAU/USD' ? data.levels.xau : data.levels.btc;
+        const levels = data.levels;
         
         const entry = parseFloat(String(levels.entry).replace(/,/g, ''));
         const sl = parseFloat(String(levels.sl).replace(/,/g, ''));
@@ -1424,7 +1305,7 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
   // Sync trading inputs with AI levels
   useEffect(() => {
     if (data) {
-      const pairLevels = selectedPair === 'XAU/USD' ? data.swingLevels.xau : data.swingLevels.btc;
+      const pairLevels = data.swingLevels;
       const levels = swingAction === 'BUY' ? pairLevels.buy : pairLevels.sell;
       
       if (!useCustomSwing) {
@@ -1512,34 +1393,28 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
               className="flex items-center gap-2 bg-[#1A1A1A] border border-indigo-500/30 px-4 py-2 rounded-xl shadow-[0_0_20px_rgba(99,102,241,0.8)] border border-indigo-400/50 hover:bg-[#2A2A2A] transition-colors"
             >
               <span className="text-sm font-black text-white tracking-tighter">
-                {selectedPair === 'XAU/USD' ? 'XAUUSD' : 'BTCUSD'}
+                {selectedPair.replace('/', '')}
               </span>
               <div className="w-px h-4 bg-white/10 mx-1" />
               <span className="text-[10px] font-bold text-white/40 uppercase">
-                {selectedPair === 'XAU/USD' ? 'GOLD' : 'BITCOIN'}
+                {selectedPair.split('/')[0]}
               </span>
               <ArrowDownRight size={14} className="text-white/40 ml-1" />
             </button>
 
           {showPairDropdown && (
-            <div className="absolute top-full left-0 mt-2 w-48 bg-[#1A1A1A] border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col">
-              <button 
-                onClick={() => { setSelectedPair('XAU/USD'); setShowPairDropdown(false); }}
-                className={`flex items-center gap-2 px-4 py-3 hover:bg-white/5 transition-colors ${selectedPair === 'XAU/USD' ? 'bg-white/5' : ''}`}
-              >
-                <div className="w-2 h-2 rounded-full bg-indigo-500" />
-                <span className="text-sm font-black text-white tracking-tighter">XAUUSD</span>
-                <span className="text-[10px] font-bold text-white/40 uppercase ml-auto">GOLD</span>
-              </button>
-              <div className="h-px w-full bg-white/5" />
-              <button 
-                onClick={() => { setSelectedPair('BTC/USD'); setShowPairDropdown(false); }}
-                className={`flex items-center gap-2 px-4 py-3 hover:bg-white/5 transition-colors ${selectedPair === 'BTC/USD' ? 'bg-white/5' : ''}`}
-              >
-                <div className="w-2 h-2 rounded-full bg-violet-500" />
-                <span className="text-sm font-black text-white tracking-tighter">BTCUSD</span>
-                <span className="text-[10px] font-bold text-white/40 uppercase ml-auto">BITCOIN</span>
-              </button>
+            <div className="absolute top-full left-0 mt-2 w-48 bg-[#1A1A1A] border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col max-h-64 overflow-y-auto">
+              {ALL_PAIRS.map((pair) => (
+                <button 
+                  key={pair}
+                  onClick={() => { setSelectedPair(pair); setShowPairDropdown(false); }}
+                  className={`flex items-center gap-2 px-4 py-3 hover:bg-white/5 transition-colors ${selectedPair === pair ? 'bg-white/5' : ''}`}
+                >
+                  <div className={`w-2 h-2 rounded-full ${pair.includes('BTC') ? 'bg-violet-500' : pair.includes('XAU') ? 'bg-indigo-500' : 'bg-emerald-500'}`} />
+                  <span className="text-sm font-black text-white tracking-tighter">{pair.replace('/', '')}</span>
+                  <span className="text-[10px] font-bold text-white/40 uppercase ml-auto">{pair.split('/')[0]}</span>
+                </button>
+              ))}
             </div>
           )}
           </div>
@@ -1731,22 +1606,6 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                     <span>SIGNAL</span>
                   </h3>
                 </div>
-                {/* Mobile Tab */}
-                <div className="flex md:hidden bg-white/5 p-1 rounded-xl border border-white/10">
-                  {(['XAU', 'BTC'] as const).map((pair) => (
-                    <button 
-                      key={pair}
-                      onClick={() => setSignalTab(pair)}
-                      className={`px-3 py-1 rounded-lg text-[9px] font-black transition-all uppercase tracking-widest ${
-                        signalTab === pair 
-                          ? 'bg-indigo-600 text-white shadow-[0_0_20px_rgba(99,102,241,0.8)] border border-indigo-400/50' 
-                          : 'text-white/30 hover:text-white/60'
-                      }`}
-                    >
-                      {pair}
-                    </button>
-                  ))}
-                </div>
               </div>
               <div className="flex flex-wrap items-center gap-2 md:gap-3 w-full md:w-auto">
                 <div className="flex items-center gap-2 flex-1 md:flex-none">
@@ -1764,25 +1623,32 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                     </span>
                   </div>
                 </div>
-                <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-indigo-400/10 rounded-full border border-indigo-400/20 shadow-[0_0_15px_rgba(129,140,248,0.4)]">
-                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
-                  <span className="text-[8px] font-black text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)] uppercase tracking-widest">REAL-TIME AI</span>
-                </div>
-                {/* Desktop Tab */}
-                <div className="hidden md:flex bg-white/5 p-1 rounded-xl border border-white/10">
-                  {(['XAU', 'BTC'] as const).map((pair) => (
-                    <button 
-                      key={pair}
-                      onClick={() => setSignalTab(pair)}
-                      className={`px-4 py-1.5 rounded-lg text-[10px] font-black transition-all uppercase tracking-widest ${
-                        signalTab === pair 
-                          ? 'bg-indigo-600 text-white shadow-[0_0_20px_rgba(99,102,241,0.8)] border border-indigo-400/50' 
-                          : 'text-white/30 hover:text-white/60'
-                      }`}
-                    >
-                      {pair}
-                    </button>
-                  ))}
+                <div className="relative flex-1 md:flex-none">
+                  <button
+                    onClick={() => setShowTradeTypeDropdown(!showTradeTypeDropdown)}
+                    className="w-full flex items-center justify-between gap-2 px-2 md:px-3 py-1.5 md:py-1 bg-indigo-400/10 rounded-xl md:rounded-full border border-indigo-400/20 shadow-[0_0_15px_rgba(129,140,248,0.4)] text-[8px] font-black text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)] uppercase tracking-widest outline-none cursor-pointer hover:bg-indigo-400/20 transition-all"
+                  >
+                    <span>{tradeType === 'AUTO' ? 'AUTO AI' : tradeType === 'SCALPING' ? 'SCALPING' : tradeType === 'SWING' ? 'SWING' : 'FM'}</span>
+                    <ArrowDownRight size={10} className="opacity-50" />
+                  </button>
+                  {showTradeTypeDropdown && (
+                    <div className="absolute top-full right-0 mt-2 w-32 bg-[#1A1A1A] border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col">
+                      {[
+                        { id: 'AUTO', label: 'AUTO AI' },
+                        { id: 'SCALPING', label: 'SCALPING' },
+                        { id: 'SWING', label: 'SWING' },
+                        { id: 'FM', label: 'FM' }
+                      ].map((type) => (
+                        <button
+                          key={type.id}
+                          onClick={() => { setTradeType(type.id); setShowTradeTypeDropdown(false); }}
+                          className={`text-left px-4 py-3 text-[10px] font-bold tracking-widest uppercase hover:bg-white/5 transition-colors ${tradeType === type.id ? 'text-indigo-400 bg-white/5' : 'text-white/70'}`}
+                        >
+                          {type.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <span className={`text-[8px] sm:text-[9px] px-2 sm:px-3 py-1.5 rounded-xl border font-black uppercase tracking-[0.1em] text-center flex-1 md:flex-none ${
                   data?.predictions?.h1?.direction === 'UP' ? 'bg-indigo-400/10 border-indigo-400/30 shadow-[0_0_15px_rgba(129,140,248,0.4)] text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)]' : 
@@ -1823,9 +1689,8 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                   <div className="space-y-4">
                     {(() => {
                       const price = livePrices[selectedPair].price;
-                      const pairKey = selectedPair === 'XAU/USD' ? 'xau' : 'btc';
-                      const resistance = parseFloat(String(data.levels[pairKey].resistance).replace(/,/g, ''));
-                      const support = parseFloat(String(data.levels[pairKey].support).replace(/,/g, ''));
+                      const resistance = parseFloat(String(data.levels.resistance).replace(/,/g, ''));
+                      const support = parseFloat(String(data.levels.support).replace(/,/g, ''));
                       const isNearResistance = Math.abs(price - resistance) / price < 0.0015; 
                       const isNearSupport = Math.abs(price - support) / price < 0.0015;
                       
@@ -1843,7 +1708,7 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                                   Status Market Saat Ini
                                 </h4>
                                 <p className="text-xs text-white/60 leading-relaxed font-medium">
-                                  Harga berada di area netral. AI Sistem sedang melakukan monitoring ketat hingga harga memasuki zona Support ({data.levels[pairKey].support}) atau Resistance ({data.levels[pairKey].resistance}) untuk peluang eksekusi probabilita tinggi.
+                                  Harga berada di area netral. AI Sistem sedang melakukan monitoring ketat hingga harga memasuki zona Support ({data.levels.support}) atau Resistance ({data.levels.resistance}) untuk peluang eksekusi probabilita tinggi.
                                 </p>
                               </div>
                             </div>
@@ -1865,8 +1730,8 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                               </h4>
                               <p className="text-xs text-purple-200/80 leading-relaxed font-medium">
                                 {isNearResistance 
-                                  ? `Harga masuk ke zona RESISTANCE psikologis di kisaran ${data.levels[pairKey].resistance}. Sorotan: Bersiap untuk potensi REVERSAL (pembalikan arah) ke bawah atau BREAKOUT jika momentum kuat.` 
-                                  : `Harga masuk ke zona SUPPORT signifikan di kisaran ${data.levels[pairKey].support}. Sorotan: Waspadai potensi REVERSAL (pantulan kembali) ke atas atau BREAKDOWN jika tekanan jual berlanjut.`}
+                                  ? `Harga masuk ke zona RESISTANCE psikologis di kisaran ${data.levels.resistance}. Sorotan: Bersiap untuk potensi REVERSAL (pembalikan arah) ke bawah atau BREAKOUT jika momentum kuat.` 
+                                  : `Harga masuk ke zona SUPPORT signifikan di kisaran ${data.levels.support}. Sorotan: Waspadai potensi REVERSAL (pantulan kembali) ke atas atau BREAKDOWN jika tekanan jual berlanjut.`}
                               </p>
                             </div>
                           </div>
@@ -1886,13 +1751,13 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                         <div>
                           <p className="text-[8px] sm:text-[9px] text-white/30 uppercase font-bold tracking-[0.2em] mb-0.5 sm:mb-1">Titik Entry</p>
                           <p className="text-xl sm:text-2xl font-black text-white tracking-tighter">
-                            {signalTab === 'XAU' ? data.levels.xau.entry : data.levels.btc.entry}
+                            {data.levels.entry}
                           </p>
                         </div>
                       </div>
                       <div className="text-right">
                         <p className="text-[8px] sm:text-[9px] text-white/20 uppercase font-black tracking-widest">PIVOT</p>
-                        <p className="text-xs sm:text-sm font-bold text-white/50">{signalTab === 'XAU' ? data.levels.xau.pivot : data.levels.btc.pivot}</p>
+                        <p className="text-xs sm:text-sm font-bold text-white/50">{data.levels.pivot}</p>
                       </div>
                     </motion.div>
 
@@ -1907,7 +1772,7 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                       <div className="overflow-hidden">
                         <p className="text-[8px] sm:text-[9px] text-purple-500 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]/50 uppercase font-bold tracking-[0.2em] mb-0.5 sm:mb-1 truncate">Batasi Kerugian (SL)</p>
                         <p className="text-xl sm:text-2xl font-black text-purple-500 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)] tracking-tighter">
-                          {signalTab === 'XAU' ? data.levels.xau.sl : data.levels.btc.sl}
+                          {data.levels.sl}
                         </p>
                       </div>
                     </motion.div>
@@ -1928,9 +1793,9 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                       
                       <div className="grid grid-cols-3 gap-2 sm:gap-3">
                         {[
-                          { label: 'TP 1', value: signalTab === 'XAU' ? data.levels.xau.tp : data.levels.btc.tp },
-                          { label: 'TP 2', value: signalTab === 'XAU' ? data.levels.xau.tp2 : data.levels.btc.tp2 },
-                          { label: 'TP 3', value: signalTab === 'XAU' ? data.levels.xau.tp3 : data.levels.btc.tp3 }
+                          { label: 'TP 1', value: data.levels.tp },
+                          { label: 'TP 2', value: data.levels.tp2 },
+                          { label: 'TP 3', value: data.levels.tp3 }
                         ].map((tp, i) => (
                           <div key={i} className="bg-white/5 p-2 sm:p-3 rounded-2xl border border-white/5 text-center group hover:bg-indigo-400/10 transition-all cursor-pointer">
                             <p className="text-[6px] sm:text-[7px] text-white/20 uppercase font-black mb-1 sm:mb-1.5 tracking-widest">{tp.label}</p>
@@ -1940,6 +1805,60 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                           </div>
                         ))}
                       </div>
+                    </motion.div>
+
+                    {/* Position Size Calculator */}
+                    <motion.div className="bg-[#111111] p-4 rounded-3xl border border-white/5 space-y-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Activity size={14} className="text-white/40" />
+                        <h4 className="text-[10px] font-bold text-white/50 uppercase tracking-widest">Kalkulator Manajemen Risiko</h4>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-[8px] sm:text-[9px] text-white/30 uppercase font-black tracking-widest block mb-2">Saldo ($)</label>
+                          <input 
+                            type="number" 
+                            value={calcBalance}
+                            onChange={(e) => setCalcBalance(Number(e.target.value))}
+                            className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-indigo-500/50" 
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[8px] sm:text-[9px] text-white/30 uppercase font-black tracking-widest block mb-2">Risiko per Trade (%)</label>
+                          <input 
+                            type="number" 
+                            value={calcRisk}
+                            step="0.5"
+                            onChange={(e) => setCalcRisk(Number(e.target.value))}
+                            className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-indigo-500/50" 
+                          />
+                        </div>
+                      </div>
+                      
+                      {(() => {
+                        const entry = parseFloat(String(data.levels.entry).replace(/,/g, ''));
+                        const sl = parseFloat(String(data.levels.sl).replace(/,/g, ''));
+                        const riskAmount = calcBalance * (calcRisk / 100);
+                        const distance = Math.abs(entry - sl);
+                        let lotSize = 0;
+                        if (!selectedPair.includes('BTC') && distance > 0) {
+                          // Standard Lot untuk XAU = $10 per pip ($1 move = 100 pips approx in standard brokers where 1 pip = 0.01)
+                          // Untuk simplifikasi: $1 = 100 pips = $100 perpindahan per 1 lot standard
+                          lotSize = riskAmount / (distance * 100);
+                        } else if (selectedPair.includes('BTC') && distance > 0) {
+                          // Standard BTC = 1 Lot = 1 BTC.
+                          lotSize = riskAmount / distance;
+                        }
+                        return (
+                          <div className="bg-indigo-500/10 py-3 px-4 rounded-2xl border border-indigo-500/20 flex flex-col items-center justify-center relative overflow-hidden">
+                            <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/10 blur-2xl rounded-full -mt-10 -mr-10"></div>
+                            <span className="text-[8px] text-indigo-400/80 font-bold uppercase tracking-[0.2em] mb-1 relative z-10">Rekomendasi Lot Size Aman</span>
+                            <span className="text-xl sm:text-2xl font-black text-indigo-400 drop-shadow-[0_0_10px_rgba(129,140,248,0.8)] tracking-tighter relative z-10">{lotSize > 0 ? lotSize.toFixed(2) : '0.00'} Lot</span>
+                            <span className="text-[8px] text-white/40 mt-1 uppercase tracking-widest font-bold">Risk: ${riskAmount.toFixed(2)} | PIP Dist: {distance.toFixed(1)}</span>
+                          </div>
+                        );
+                      })()}
                     </motion.div>
 
                     {/* Live Sync Status */}
@@ -2031,70 +1950,7 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
             </div>
           </div>
 
-          <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-5 space-y-4">
-            <div className="flex flex-col gap-3 border-b border-white/5 pb-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-[10px] font-bold text-violet-500 uppercase tracking-widest flex items-center gap-2">
-                  <Globe size={14} />
-                  Kalender Ekonomi
-                </h3>
-              </div>
-              <div className="flex items-center gap-1 bg-white/5 p-1 rounded-lg">
-                {[
-                  { value: 'ALL', label: 'SEMUA' },
-                  { value: 'HIGH', label: 'HIGH' },
-                  { value: 'MEDIUM', label: 'MID' },
-                  { value: 'LOW', label: 'LOW' }
-                ].map((filter) => (
-                  <button
-                    key={filter.value}
-                    onClick={() => setImpactFilter(filter.value as any)}
-                    className={`flex-1 text-[8px] font-bold uppercase tracking-widest py-1.5 rounded transition-all ${
-                      impactFilter === filter.value 
-                        ? 'bg-violet-500 text-white shadow-[0_0_10px_rgba(139,92,246,0.3)]' 
-                        : 'text-white/40 hover:text-white hover:bg-white/5'
-                    }`}
-                  >
-                    {filter.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {(!data && loading) ? (
-              <div className="space-y-2 animate-pulse">
-                <div className="h-10 bg-white/5 rounded"></div>
-                <div className="h-10 bg-white/5 rounded"></div>
-                <div className="h-10 bg-white/5 rounded"></div>
-              </div>
-            ) : data ? (
-              <div className="space-y-2">
-                {filteredCalendar.map((event, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-2 bg-white/5 border border-white/10 rounded group hover:border-violet-500/30 transition-colors">
-                    <div className="flex flex-col gap-0.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[9px] font-mono text-violet-500">{event.time}</span>
-                        <span className="text-[8px] px-1 bg-white/10 text-white/60 rounded font-bold">{event.currency}</span>
-                      </div>
-                      <span className="text-[10px] text-white font-medium line-clamp-1">{event.event}</span>
-                    </div>
-                    <div className={`w-1.5 h-1.5 rounded-full ${
-                      event.impact === 'HIGH' ? 'bg-purple-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 
-                      event.impact === 'MEDIUM' ? 'bg-violet-500' : 'bg-blue-500'
-                    }`} title={`Dampak ${event.impact}`} />
-                  </div>
-                ))}
-                {filteredCalendar.length === 0 && (
-                  <p className="text-[9px] text-white/20 italic text-center py-4">
-                    {impactFilter === 'ALL' ? 'Tidak ada acara yang dijadwalkan' : `Tidak ada acara berdampak ${impactFilter} yang dijadwalkan`}
-                  </p>
-                )}
-              </div>
-            ) : (
-              <div className="text-center py-6">
-                <p className="text-[10px] text-white/20">Tidak ada data kalender</p>
-              </div>
-            )}
-          </div>
+
 
           <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-5 space-y-4">
             <div className="flex items-center justify-between border-b border-white/5 pb-2">

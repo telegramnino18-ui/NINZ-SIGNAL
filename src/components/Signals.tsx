@@ -1,16 +1,160 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, db, onSnapshot, query, orderBy, where, doc, updateDoc, deleteDoc, Timestamp, handleFirestoreError, OperationType } from '../firebase';
-import { TrendingUp, TrendingDown, Clock, Lock, Eye, ChevronRight, AlertCircle, CheckCircle2, Copy, Trash2 } from 'lucide-react';
+import { collection, db, onSnapshot, query, setDoc, doc, updateDoc, deleteDoc, Timestamp, handleFirestoreError, OperationType } from '../firebase';
+import { TrendingUp, TrendingDown, Clock, Lock, Eye, ChevronRight, AlertCircle, CheckCircle2, Copy, Trash2, ThumbsUp, ThumbsDown, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
+
+const SignalFeedback = ({ signalId, profile }: { signalId: string, profile: any }) => {
+  const [feedbacks, setFeedbacks] = useState<any[]>([]);
+  const [myFeedback, setMyFeedback] = useState<any>(null);
+  const [comment, setComment] = useState('');
+  const [showCommentInput, setShowCommentInput] = useState(false);
+
+  useEffect(() => {
+    const q = query(collection(db, 'signals', signalId, 'feedbacks'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as any));
+      setFeedbacks(data);
+      const mine = data.find(f => f.id === profile?.uid);
+      if (mine) {
+        setMyFeedback(mine);
+        setComment(mine.comment || '');
+      }
+    }, (error) => {
+      // Supress error if user doesn't have access or it fails silently for logged out users
+    });
+    return () => unsubscribe();
+  }, [signalId, profile?.uid]);
+
+  const handleVote = async (type: 'up' | 'down') => {
+    if (!profile?.uid) return toast.error('Harap login untuk memberikan feedback');
+    try {
+      const feedbackRef = doc(db, 'signals', signalId, 'feedbacks', profile.uid);
+      await setDoc(feedbackRef, {
+        type,
+        updatedAt: Timestamp.now()
+      }, { merge: true });
+      toast.success('Feedback disimpan!');
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `signals/${signalId}/feedbacks`);
+    }
+  };
+
+  const handleCommentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!profile?.uid) return toast.error('Harap login untuk memberikan komentar');
+    if (!comment.trim()) return;
+    try {
+      const feedbackRef = doc(db, 'signals', signalId, 'feedbacks', profile.uid);
+      await setDoc(feedbackRef, {
+        comment,
+        updatedAt: Timestamp.now()
+      }, { merge: true });
+      toast.success('Komentar disimpan!');
+      setShowCommentInput(false);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `signals/${signalId}/feedbacks`);
+    }
+  };
+
+  const upVotes = feedbacks.filter(f => f.type === 'up').length;
+  const downVotes = feedbacks.filter(f => f.type === 'down').length;
+  const commentsCount = feedbacks.filter(f => f.comment && f.comment.trim().length > 0).length;
+
+  return (
+    <div className="pt-4 mt-2 border-t border-white/5 relative z-20">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => handleVote('up')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+              myFeedback?.type === 'up' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/20' : 'bg-white/5 text-white/40 hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            <ThumbsUp size={14} /> <span>{upVotes > 0 ? upVotes : ''}</span>
+          </button>
+          <button 
+            onClick={() => handleVote('down')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+              myFeedback?.type === 'down' ? 'bg-red-500/20 text-red-400 border border-red-500/20' : 'bg-white/5 text-white/40 hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            <ThumbsDown size={14} /> <span>{downVotes > 0 ? downVotes : ''}</span>
+          </button>
+        </div>
+        
+        <button 
+          onClick={() => setShowCommentInput(!showCommentInput)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+             showCommentInput || commentsCount > 0 ? 'bg-blue-500/20 text-blue-400 border border-blue-500/20' : 'bg-white/5 text-white/40 hover:bg-white/10 hover:text-white'
+          }`}
+        >
+          <MessageSquare size={14} /> <span>{commentsCount > 0 ? commentsCount : 'Komentar'}</span>
+        </button>
+      </div>
+
+      <AnimatePresence>
+        {showCommentInput && (
+          <motion.div 
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden mt-3"
+          >
+            <form onSubmit={handleCommentSubmit} className="flex flex-col gap-2">
+              <textarea
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="Berikan feedback untuk sinyal ini..."
+                className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-xs text-white placeholder:text-white/20 outline-none focus:border-violet-500/50 resize-none min-h-[60px]"
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCommentInput(false)}
+                  className="px-3 py-1.5 text-[10px] uppercase tracking-widest font-bold text-white/40 hover:text-white transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={!comment.trim() || !profile?.uid}
+                  className="px-4 py-1.5 rounded-lg bg-violet-500 text-[10px] uppercase tracking-widest font-bold text-white hover:bg-violet-600 disabled:opacity-50 transition-colors"
+                >
+                  Kirim
+                </button>
+              </div>
+            </form>
+
+            {commentsCount > 0 && (
+              <div className="mt-4 space-y-3 max-h-[150px] overflow-y-auto pr-2 custom-scrollbar">
+                {feedbacks.filter(f => f.comment && f.comment.trim() !== '').map((f, idx) => (
+                  <div key={idx} className="bg-black/20 p-2.5 rounded-lg border border-white/5">
+                    <p className="text-xs text-white/70 italic">"{f.comment}"</p>
+                    {f.type && (
+                       <div className="mt-1 flex items-center gap-1">
+                         {f.type === 'up' ? <ThumbsUp size={10} className="text-emerald-400" /> : <ThumbsDown size={10} className="text-red-400" />}
+                       </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
 
 export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any }) => {
   const [signals, setSignals] = useState<any[]>([]);
   const [viewedSignals, setViewedSignals] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [pairFilter, setPairFilter] = useState<'ALL' | 'XAU/USD' | 'BTC/USD'>('ALL');
+  const [pairFilter, setPairFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'active' | 'closed'>('ALL');
+  const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const [currentTime, setCurrentTime] = useState(Date.now());
 
   useEffect(() => {
@@ -22,9 +166,12 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
     return signals.filter(signal => {
       const matchPair = pairFilter === 'ALL' || signal.pair === pairFilter;
       const matchStatus = statusFilter === 'ALL' || signal.status === statusFilter;
-      return matchPair && matchStatus;
+      const matchType = typeFilter === 'ALL' || 
+                        (typeFilter === 'REGULAR' && (!signal.tradeType || signal.tradeType === 'REGULAR')) || 
+                        signal.tradeType === typeFilter;
+      return matchPair && matchStatus && matchType;
     });
-  }, [signals, pairFilter, statusFilter]);
+  }, [signals, pairFilter, statusFilter, typeFilter]);
 
   useEffect(() => {
     const q = query(
@@ -150,36 +297,31 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
         <div className="flex flex-wrap items-center gap-4">
           {/* Filters Bar */}
           <div className="flex bg-white/5 border border-white/10 p-1 rounded-2xl h-fit">
-            <button 
-              onClick={() => setPairFilter('ALL')}
-              className={`px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
-                pairFilter === 'ALL' 
-                  ? 'bg-violet-500 text-white shadow-lg shadow-violet-500/20' 
-                  : 'text-white/40 hover:text-white'
-              }`}
+            <select
+              value={pairFilter}
+              onChange={(e) => setPairFilter(e.target.value)}
+              className="bg-transparent text-white/70 px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest outline-none border-none cursor-pointer hover:text-white focus:ring-0 [&>option]:bg-[#0A0A0A] [&>option]:text-white"
             >
-              SEMUA PAIR
-            </button>
-            <button 
-              onClick={() => setPairFilter('XAU/USD')}
-              className={`px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
-                pairFilter === 'XAU/USD' 
-                  ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20' 
-                  : 'text-white/40 hover:text-white'
-              }`}
-            >
-              XAU/USD
-            </button>
-            <button 
-              onClick={() => setPairFilter('BTC/USD')}
-              className={`px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
-                pairFilter === 'BTC/USD' 
-                  ? 'bg-violet-600 text-white shadow-lg shadow-violet-600/20' 
-                  : 'text-white/40 hover:text-white'
-              }`}
-            >
-              BTC/USD
-            </button>
+              <option value="ALL">SEMUA PAIR</option>
+              <option value="XAU/USD">XAU/USD</option>
+              <option value="BTC/USD">BTC/USD</option>
+            </select>
+          </div>
+
+          <div className="flex flex-wrap bg-white/5 border border-white/10 p-1 rounded-2xl h-fit max-w-full">
+            {['ALL', 'REGULAR', 'SCALPING', 'SWING', 'FM'].map(type => (
+              <button
+                key={type}
+                onClick={() => setTypeFilter(type)}
+                className={`px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${
+                  typeFilter === type
+                    ? 'bg-white/10 text-white shadow-lg shadow-white/5'
+                    : 'text-white/40 hover:text-white'
+                }`}
+              >
+                {type === 'ALL' ? 'SEMUA TIPE' : type}
+              </button>
+            ))}
           </div>
 
           <div className="flex bg-white/5 border border-white/10 p-1 rounded-2xl h-fit">
@@ -265,11 +407,26 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
               {/* Header */}
               <div className="p-5 border-b border-white/5 flex items-center justify-between bg-white/[0.02]">
                 <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg ${signal.pair === 'XAU/USD' ? 'bg-blue-500/10 text-blue-500' : 'bg-violet-500/10 text-violet-500'}`}>
+                  <div className={`p-2 rounded-lg ${
+                    signal.pair.includes('BTC') || signal.pair.includes('ETH') || signal.pair.includes('SOL') || signal.pair.includes('BNB') ? 'bg-orange-500/10 text-orange-500' :
+                    signal.pair.includes('XAU') || signal.pair.includes('XAG') || signal.pair.includes('WTI') || signal.pair.includes('BRENT') ? 'bg-amber-400/10 text-amber-400' :
+                    'bg-blue-500/10 text-blue-500'
+                  }`}>
                     <TrendingUp size={16} />
                   </div>
                   <div>
-                    <div className="font-bold text-sm tracking-tight">{signal.pair}</div>
+                    <div className="flex items-center gap-2">
+                      <div className="font-bold text-sm tracking-tight">{signal.pair}</div>
+                      {signal.tradeType && signal.tradeType !== 'REGULAR' && (
+                        <div className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-widest ${
+                          signal.tradeType === 'SCALPING' ? 'bg-orange-500/10 text-orange-500 border border-orange-500/20' :
+                          signal.tradeType === 'SWING' ? 'bg-cyan-500/10 text-cyan-500 border border-cyan-500/20' :
+                          signal.tradeType === 'FM' ? 'bg-pink-500/10 text-pink-500 border border-pink-500/20' : ''
+                        }`}>
+                          {signal.tradeType}
+                        </div>
+                      )}
+                    </div>
                     <div className="text-[10px] text-white/40 uppercase tracking-widest font-bold">
                       {formatDate(signal.createdAt)}
                     </div>
@@ -408,6 +565,8 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
                     </div>
                   </div>
                 )}
+                
+                <SignalFeedback signalId={signal.id} profile={profile} />
               </div>
             </motion.div>
           );
